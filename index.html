@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Fang the Fox</title>
+<meta name="description" content="Fang the Fox: a tiny pixel adventure across floating islands, scored with Austin Ginder's Tiny Bit Adventures.">
+<style>
+  :root { --bg: #05060e; --btn: #1b1f3a; --btn-edge: #3f4f8a; --btn-on: #e8622a; --ink: #eef4ff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; touch-action: none; -webkit-user-select: none; user-select: none; }
+  #screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #0a0e22; cursor: pointer; }
+  #pad { display: none; width: 100%; max-width: 520px; padding: 12px 16px 18px; box-sizing: border-box; justify-content: space-between; align-items: center; }
+  body.touch #pad { display: flex; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; }
+  .acts { display: grid; grid-template-columns: repeat(2, 56px); gap: 10px; }
+  #pad button { font: 700 11px/1 monospace; color: var(--ink); background: var(--btn); border: 2px solid var(--btn-edge); border-radius: 4px; padding: 0; image-rendering: pixelated; box-shadow: 0 3px 0 #0b0d1a; }
+  #pad button.on { background: var(--btn-on); transform: translateY(2px); box-shadow: none; }
+  .acts button { height: 56px; border-radius: 50% !important; }
+  .u { grid-column: 2; grid-row: 1; } .l { grid-column: 1; grid-row: 2; } .r { grid-column: 3; grid-row: 2; } .d { grid-column: 2; grid-row: 3; }
+  .acts .ok { grid-column: 1 / span 2; height: 30px; border-radius: 4px !important; }
+</style>
+</head>
+<body>
+<canvas id="screen" width="384" height="240"></canvas>
+<div id="pad">
+  <div class="dpad">
+    <button class="u" data-key="up">&#9650;</button><button class="l" data-key="left">&#9664;</button>
+    <button class="r" data-key="right">&#9654;</button><button class="d" data-key="down">&#9660;</button>
+  </div>
+  <div class="acts">
+    <button data-key="eat">FISH</button><button data-key="spin">SPIN</button>
+    <button class="ok" data-key="enter">OK</button><button class="ok" data-key="pause" style="grid-column:1 / span 2">MENU</button>
+  </div>
+</div>
+<script src="js/palette.js"></script>
+<script>const SPRITES = {};</script>
+<script src="js/sprites-chars.js"></script>
+<script src="js/sprites-terrain.js"></script>
+<script src="js/sprites-props.js"></script>
+<script src="js/sprites-chars2.js"></script>
+<script src="js/sprites-world2.js"></script>
+<script src="js/font.js"></script>
+<script src="js/data.js"></script>
+<script src="js/render.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/game.js"></script>
+<script src="js/story.js"></script>
+<script src="js/view.js"></script>
+</body>
+</html>
