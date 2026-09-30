@@ -2,10 +2,13 @@
 // runs are repeatable). Writes s0.png (the screen after boot) and one sN.png per step with "shot".
 // usage: PW=/path/to/node_modules/playwright OUT=dir STEPS='[{"hold":["right"],"frames":40,"shot":1}]' node gbc/tools/screenshot.js
 //   step keys: press (a button, held 2 frames), hold ([buttons] for "frames"), frames (run N frames),
-//              eval (JS in the page), shot (1 = the 160x144 screen at 3x, "page" = the whole page)
+//              eval (JS in the page; SYM holds the ROM's symbols from build/fang.noi, fangEmu.read/write
+//              reach its memory), shot (1 = the 160x144 screen at 3x, "page" = the whole page)
 //   Buttons: up down left right A B start select. URL=... to test another copy; KEEP_SAVE=1 keeps the save.
 const { chromium } = require(process.env.PW);
-const fs = require('fs'), out = process.env.OUT || 'shots';
+const fs = require('fs'), path = require('path'), out = process.env.OUT || 'shots';
+const noi = path.join(__dirname, '..', 'build', 'fang.noi');
+const SYM = fs.existsSync(noi) ? Object.fromEntries([...fs.readFileSync(noi, 'utf8').matchAll(/DEF _(\w+) 0x([0-9A-F]+)/gi)].map(m => [m[1], parseInt(m[2], 16)])) : {};
 (async () => {
   fs.mkdirSync(out, { recursive: true });
   const b = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -14,6 +17,7 @@ const fs = require('fs'), out = process.env.OUT || 'shots';
   await p.goto((process.env.URL || 'https://fangthefox.localhost/gbc/') + '?live=0');
   if (!process.env.KEEP_SAVE) { await p.evaluate(() => localStorage.clear()); await p.reload(); }
   await p.evaluate(() => window.fangEmu.ready);
+  await p.evaluate(sym => { window.SYM = sym; }, SYM);
   await p.evaluate(() => { fangEmu.pause(); fangEmu.step(90); });
   let n = 0;
   const shot = async kind => {

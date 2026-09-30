@@ -251,6 +251,7 @@ window.fangEmu = {
   step(frames = 1) { if (emu) emu.step(frames); },
   get frame() { return emu ? Math.floor(emu.ticks / TICKS_PER_FRAME) : 0; },
   read(addr) { return emu ? emu.module._emulator_read_mem(emu.e, addr) : 0; },
+  write(addr, value) { if (emu) emu.module._emulator_write_mem(emu.e, addr, value); },
   readBlock(addr, len) { const out = []; for (let i = 0; i < len; i++) out.push(this.read(addr + i)); return out; },
   sram() { return emu ? Array.from(emu.getSram()) : []; },
 };

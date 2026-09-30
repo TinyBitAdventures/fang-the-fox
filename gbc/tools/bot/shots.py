@@ -1,45 +1,52 @@
 #!/usr/bin/env python3
-# Every area as the ROM draws it (PyBoy, headless), on one contact sheet, compared pixel by pixel
-# with the build's own preview (build/preview/areas.png): the ROM must show exactly what was generated.
-# usage: gbc/.venv/bin/python gbc/tools/bot/shots.py        writes gbc/build/shots/areas-rom.png
+# Every area from the ROM (PyBoy, headless): the background compared pixel by pixel with the build's
+# preview (build/preview/areas.png), with sprites and the HUD hidden and the camera pinned at both ends;
+# then a contact sheet of every area as the player sees it (build/shots/areas-rom.png), and how much of
+# a frame the game's work takes in each area (scanlines, of 154; a frame that overruns fails).
+# usage: gbc/.venv/bin/python gbc/tools/bot/shots.py
 import re, sys
-from pathlib import Path
 import numpy as np
 from PIL import Image
-from pyboy import PyBoy
+from rom import Rom, GBC
 
-GBC = Path(__file__).resolve().parents[2]
 count = int(re.search(r'#define AREA_COUNT (\d+)', (GBC / 'src/gen/world.h').read_text()).group(1))
 out = GBC / 'build/shots'
 out.mkdir(parents=True, exist_ok=True)
 preview = np.asarray(Image.open(GBC / 'build/preview/areas.png').convert('RGB'))
-COLS, CW, CH = 4, 228, 148      # the preview's layout: 224x144 cells with a 4 px gutter
-sheet = Image.new('RGB', preview.shape[1::-1], (16, 16, 24))
+COLS, CW, CH = 4, 228, 132            # the preview's layout: 224x128 cells with a 4 px gutter
+SW, SH = 168, 152                     # the contact sheet: 160x144 screens with an 8 px gutter
+sheet = Image.new('RGB', (COLS * SW, ((count + COLS - 1) // COLS) * SH), (16, 16, 24))
 
-pb = PyBoy(str(GBC / 'build/fang.gbc'), window='null', cgb=True, sound_emulated=False)
-pb.tick(120, True)
-bad = []
+rom = Rom()
+LCDC = 0xFF40
+bad, budget = [], []
 for n in range(count):
-    pb.tick(10, True)
-    left = pb.screen.ndarray[:, :, :3].copy()
-    pb.button_press('right'); pb.tick(40, True); pb.button_release('right'); pb.tick(2, True)
-    right = pb.screen.ndarray[:, :, :3].copy()
-    full = np.zeros((144, 224, 3), np.uint8)
-    full[:, :160] = left
-    full[:128, 64:] = right[:128]          # the playfield scrolls, the HUD stays put
+    rom.tick(50)                                              # the fade in after the door
+    rom.tick(1, False)
+    start, end = rom.u8('dbg_ly'), rom.u8('dbg_ly', 1)
+    used = (end - start) % 154
+    budget.append((used, n))
+    if not (start >= 144 and (end > start or end < 144)): bad.append(f'area {n + 1}: the frame overran (scanline {start} to {end})')
+    sheet.paste(Image.fromarray(rom.screen()), ((n % COLS) * SW, (n // COLS) * SH))
+    lcdc = rom.pb.memory[LCDC]
+    rom.pb.memory[LCDC] = lcdc & ~0x22                        # sprites and window off: the background alone
+    full = np.zeros((128, 224, 3), np.uint8)
+    for cam, x0 in ((1, 0), (65, 64)):
+        rom.poke('dbg_cam', cam); rom.tick(3)
+        full[:, x0:x0 + 160] = rom.screen()[:128]
+    rom.poke('dbg_cam', 0); rom.pb.memory[LCDC] = lcdc
     cx, cy = (n % COLS) * CW, (n // COLS) * CH
-    ref = preview[cy:cy + 144, cx:cx + 224]
-    diff = np.any((full >> 3) != (ref >> 3), axis=2)
-    diff[128:, 160:] = False
+    diff = np.any((full >> 3) != (preview[cy:cy + 128, cx:cx + 224] >> 3), axis=2)
     if diff.any():
         ys, xs = np.nonzero(diff)
         bad.append(f'area {n + 1}: {int(diff.sum())} pixels differ, first at x={xs[0]} y={ys[0]}')
-    full[128:, 160:] = (16, 16, 24)
-    sheet.paste(Image.fromarray(full), (cx, cy))
-    pb.button('select'); pb.tick(20, True)
-pb.stop(save=False)
+    if rom.area() != n: bad.append(f'expected area {n} on screen, the ROM is in area {rom.area()}')
+    rom.tap('select', 2)                                      # debug: next area
+rom.stop()
 sheet.save(out / 'areas-rom.png')
 print(f'{count} areas captured: {out / "areas-rom.png"}')
+worst = sorted(budget, reverse=True)[:3]
+print('busiest frames: ' + ', '.join(f'area {n + 1} {used}/154 scanlines' for used, n in worst))
 if bad:
     print('\n'.join(bad)); sys.exit(1)
-print('every area matches the build preview')
+print('every area background matches the build preview')
