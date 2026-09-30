@@ -1,6 +1,6 @@
 // The sprite manager: things are listed each frame by priority, then spr_flush() writes them to the
 // shadow OAM with GBDK's metasprite routines (GBDK copies it to the hardware in VBlank). Priority 0
-// (Fang) goes first, then 1 (bosses, anything next to Fang), then 2. The GBC draws only 10 sprites
+// (Fang) goes first, then 1 (bosses, anything next to Fang), then 2 (the rest), then 3 (items, arrows). The GBC draws only 10 sprites
 // on a scanline, the first 10 in OAM order, so when a row would overflow the priority-2 things take
 // turns at the front: they flicker, none vanish.
 // Kept cheap for the Game Boy's CPU: arrays instead of structs, statics instead of locals.
@@ -9,15 +9,15 @@
 
 uint8_t spr_kind[MAX_DRAW], spr_frame[MAX_DRAW], spr_flip[MAX_DRAW], spr_x[MAX_DRAW], spr_y[MAX_DRAW];
 uint8_t spr_n, spr_row[9], spr_over;
-static uint8_t order[3][MAX_DRAW], count[3], rot, oam;
+static uint8_t order[4][MAX_DRAW], count[4], rot2, rot3, oam;
 
 void spr_clear(void) {
-  spr_n = 0; spr_over = 0; count[0] = count[1] = count[2] = 0;
+  spr_n = 0; spr_over = 0; count[0] = count[1] = count[2] = count[3] = 0;
   for (uint8_t i = 0; i < 9; i++) spr_row[i] = 0;
 }
 
 uint8_t spr_slot(uint8_t prio) {
-  if (spr_n == MAX_DRAW) return 0xFF;
+  if (spr_n == MAX_DRAW || prio > 3) return 0xFF;
   order[prio][count[prio]++] = spr_n;
   return spr_n++;
 }
@@ -51,9 +51,13 @@ void spr_flush(void) {
   oam = 0;
   for (i = 0; i < count[0]; i++) { s = order[0][i]; emit(); }
   for (i = 0; i < count[1]; i++) { s = order[1][i]; emit(); }
+  // priority 2 (foes, friends) then 3 (items, edge arrows), each taking turns when a row overflows
   m = count[2];
-  if (spr_over && m) { if (++rot >= m) rot = 0; } else rot = 0;
-  for (i = 0, j = rot; i < m; i++) { s = order[2][j]; emit(); if (++j == m) j = 0; }
+  if (spr_over && m) { if (++rot2 >= m) rot2 = 0; } else rot2 = 0;
+  for (i = 0, j = rot2; i < m; i++) { s = order[2][j]; emit(); if (++j == m) j = 0; }
+  m = count[3];
+  if (spr_over && m) { if (++rot3 >= m) rot3 = 0; } else rot3 = 0;
+  for (i = 0, j = rot3; i < m; i++) { s = order[3][j]; emit(); if (++j == m) j = 0; }
   if (oam > 40) oam = 40;
   hide_sprites_range(oam, 40);
 }

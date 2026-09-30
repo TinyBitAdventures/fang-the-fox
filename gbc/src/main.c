@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include "game.h"
 
-uint8_t dbg_ly[3];   // scanline at: frame start, after the game's work, after palettes (tests watch the budget)
+uint8_t dbg_ly[8];   // scanlines: frame start, after the game's work, after palettes; game.c stamps 3-7 (tests watch the budget)
 void main(void) {
   cpu_fast();
   DISPLAY_OFF;
@@ -20,7 +20,7 @@ void main(void) {
   uint8_t prev = 0;
   while (1) {
     wait_vbl_done();
-    SCX_REG = cam_x;
+    SCX_REG = cam_x; SCY_REG = scroll_y;
     pal_upload();
     uint8_t j = joypad();
     dbg_ly[0] = LY_REG;

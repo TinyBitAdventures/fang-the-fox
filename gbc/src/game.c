@@ -1,171 +1,204 @@
-// Fang in the world: the port of js/game.js starts here (movement, bumping, doors) plus what the web
-// game draws in view.js (the hop and bump, the camera, sprites for everything in the area).
-// Names follow the web code: do_action = doAction, try_door = tryDoor, move_fox = moveFox, bump = bump.
+// The game on screen, every frame: input, the animations the rules ask for (view.js's entityPos),
+// the camera, drawing everything, floating numbers, doors and fades, falling, and the SELECT overview.
+// Runs in bank 0 and is written for SDCC: statics, byte-indexed arrays, tables instead of maths.
 #include <gb/gb.h>
 #include <string.h>
 #include "game.h"
 
-fox_t fox;
-uint8_t cam_x, dbg_cam;
+uint8_t cam_x, scroll_y, dbg_cam, dbg_goto;   // dbg_goto: area + 1 to go to (tests)
 uint16_t frame_count;
+uint8_t en_anim[MAX_ENEMIES], en_anim_t[MAX_ENEMIES], en_from[MAX_ENEMIES], en_flash[MAX_ENEMIES];
 
-enum { A_NONE, A_HOP, A_BUMP };
-static struct { uint8_t type, t, fx, fy; } anim;   // Fang's current move (7 frames, like the web's 110-120 ms)
-static const uint8_t ease16[8] = { 0, 4, 8, 11, 13, 15, 16, 16 };   // 16 * easeOut(t / 7)
-static const uint8_t lift4[8] = { 0, 2, 3, 4, 4, 3, 2, 0 };         // 4 * sin(pi * t / 7)
-static const int8_t bump2[8] = { 0, 2, -1, -2, 2, 1, -2, 0 };       // 2 * sin(4 * pi * t / 7)
-#define ANIM_FRAMES 7
+// easeOut, sin arcs and the bump wobble at 8 steps through an animation (view.js entityPos)
+static const uint8_t ease16[9] = { 0, 4, 7, 10, 12, 14, 15, 16, 16 };
+static const uint8_t lift4[9] = { 0, 2, 3, 4, 4, 4, 3, 2, 0 };
+static const uint8_t lift2[9] = { 0, 1, 1, 2, 2, 2, 1, 1, 0 };
+static const uint8_t lunge6[9] = { 0, 2, 4, 6, 6, 6, 4, 2, 0 };
+static const int8_t bump2[9] = { 0, 2, 0, -2, 0, 2, 0, -2, 0 };
+#define EN_MOVE_FRAMES 9    // 150 ms
+#define EN_LUNGE_FRAMES 10  // 160 ms
 
-enum { M_PLAY, M_TRANS };
-static uint8_t state, trans_t, trans_to, trans_spawn, queued;
+fox_anim_t fa;   // Fang's animation
+enum { S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW };
+uint8_t game_state;   // S_* (exported for the tests)
+extern uint8_t dbg_ly[8];
+#define state game_state
+static uint8_t trans_t, trans_to, trans_spawn, dead_t, shake_n, queued;
 #define FADE 16   // frames each way; the web's dissolve takes 560 ms, the area swaps at 260 ms
 
-static uint8_t idx(uint8_t x, uint8_t y) { return y * COLS + x; }
-static uint8_t ent_at(uint8_t x, uint8_t y) { for (uint8_t i = 0; i < ent_n; i++) if (ent_x[i] == x && ent_y[i] == y) return i + 1; return 0; }
-static uint8_t has_plate(void) { for (uint8_t i = 0; i < CELLS; i++) if (tiles[i] == '+') return 1; return 0; }
-static uint8_t flag_for(uint8_t req) { (void)req; return 0; }   // story flags and perks arrive in phases 2-4
-
-static void bump(const char *text) {
-  anim.type = A_BUMP; anim.t = 0;
-  if (text) hud_say(text);
-}
-static void move_fox(uint8_t nx, uint8_t ny) {
-  anim.type = A_HOP; anim.t = 0; anim.fx = fox.x; anim.fy = fox.y;
-  fox.x = nx; fox.y = ny;
-}
-static void enter_area(uint8_t a, uint8_t spawn) {   // spawn 0xFF: the area's own start cell
-  area_load(a);
-  if (spawn == 0xFF) spawn = area_spawn;
-  fox.x = spawn % COLS; fox.y = spawn / COLS;
-  anim.type = A_NONE;
-  hud_title(area_title);
-}
-static void transition(uint8_t to, uint8_t spawn) { state = M_TRANS; trans_t = 0; trans_to = to; trans_spawn = spawn; queued = 0; }
-
-static void try_door(uint8_t i, uint8_t nx, uint8_t ny) {
-  door_rt_t *d = 0;
-  for (uint8_t k = 0; k < door_n; k++) if (doors[k].cell == i) d = &doors[k];
-  if (!d) { bump("This passage leads nowhere..."); return; }
-  if (d->req && !flag_for(d->req)) {
-    switch (d->req) {
-      case REQ_GOOKING:      bump("Thick green goo seals the path. The Goo King must be stopped first!"); break;
-      case REQ_PATHFINDER:   bump("An overgrown secret passage. Learn PATHFINDER to open it."); break;
-      case REQ_CRYSTALKEY:   bump("The crystal arch is sealed. Find the Crystal Key in the Depths below."); break;
-      case REQ_FROST_CLOAK:  bump("The heat is too intense! You need the Frost Cloak from the Ice Colossus."); break;
-      default:               bump("The forest rejects you. You need the Dragon Scale."); break;
-    }
-    return;
-  }
-  move_fox(nx, ny);
-  hud_say(d->name);
-  transition(d->to, d->spawn);
+void fox_anim(uint8_t type, uint8_t from_x, uint8_t from_y, uint8_t frames) { fa.type = type; fa.t = 0; fa.d = frames; fa.fx = from_x; fa.fy = from_y; }
+void enemy_anim(uint8_t e, uint8_t type, uint8_t from_cell) { en_anim[e] = type; en_anim_t[e] = 0; en_from[e] = from_cell; }
+void shake(uint8_t n) { if (n > shake_n) shake_n = n; }
+void transition(uint8_t to, uint8_t spawn) { state = S_TRANS; trans_t = 0; trans_to = to; trans_spawn = spawn; queued = 0; }
+void game_over(void) { state = S_DEAD; dead_t = 0; sfx_play(SFX_HURT); hud_say("Fang falls... Press A to try again."); }
+uint8_t busy(void) {
+  if (state == S_TRANS) return 2;
+  if (fa.type != A_NONE) return 1;
+  for (uint8_t i = 0; i < en_n; i++) if (en_anim[i] != A_NONE) return 1;
+  return 0;
 }
 
-static void do_action(int8_t dx, int8_t dy) {
-  if (dx) fox.dir = dx;
-  int8_t nx = fox.x + dx, ny = fox.y + dy;
-  if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) { bump("Ouch! The edge of the island."); return; }
-  if (ent_at(nx, ny)) { bump(0); return; }   // attacking and talking come in phases 2 and 4
-  uint8_t i = idx(nx, ny), ch = tiles[i];
-  if (ch == 'd' || ch == 'D') { try_door(i, nx, ny); return; }
-  if (ch == '?' || ch == '*') { bump(0); return; }   // signs and braziers come in phases 3 and 4
-  if (ch == '%') { bump("A locked gate. It needs an Ancient Key."); return; }
-  if (ch == '#') { bump(has_plate() ? "A sealed gate. Something here must be weighed down..." : "A sealed gate. The braziers here are cold..."); return; }
-  if (ch == '~') { bump("The Void yawns below. Better not!"); return; }
-  if (ch_flags[ch] & CF_SOLID) { bump(ch == 'w' ? "Fang would rather not swim." : 0); return; }
-  move_fox(nx, ny);
+// ---------- floating numbers: 4 slots, each a 24x16 sprite drawn into VRAM (screen.c) when it appears ----------
+uint8_t fl_t[FLOATS], fl_x[FLOATS], fl_y[FLOATS];
+static uint8_t fl_next;
+char float_text[16];
+void float_num(uint8_t x, uint8_t y, const char *text) {
+  uint8_t s = fl_next;
+  fl_next = (fl_next + 1) & (FLOATS - 1);
+  strncpy(float_text, text, sizeof(float_text) - 1); float_text[sizeof(float_text) - 1] = 0;
+  float_render(s);
+  fl_t[s] = FLOAT_LIFE; fl_x[s] = x; fl_y[s] = y;
 }
 
-void game_start(void) {
-  memset(&fox, 0, sizeof(fox));
-  fox.hp = fox.max_hp = 100; fox.atk = 5; fox.lvl = 1; fox.dir = 1;
-  enter_area(0, 0xFF);
-  hud_stats();
-  pal_level = 16; pal_dirty = 1;
+uint8_t cam_want(int16_t px) {
+  int16_t want = px + 8 - 80;
+  if (want < 0) want = 0;
+  if (want > (AREA_W - 20) * 8) want = (AREA_W - 20) * 8;
+  return (uint8_t)want;
 }
 
 // ---------- drawing ----------
-static void fox_pos(int16_t *px, int16_t *py, uint8_t *lift) {
-  *px = fox.x << 4; *py = fox.y << 4; *lift = 0;
-  if (anim.type == A_HOP) {
-    uint8_t e = ease16[anim.t];
-    *px = anim.fx << 4; *py = anim.fy << 4;
-    if (fox.x > anim.fx) *px += e; else if (fox.x < anim.fx) *px -= e;
-    if (fox.y > anim.fy) *py += e; else if (fox.y < anim.fy) *py -= e;
-    *lift = lift4[anim.t];
-  } else if (anim.type == A_BUMP) *px += bump2[anim.t];
-}
-
 static void draw(void) {
-  int16_t px, py; uint8_t lift, left = 0, right = 0;
-  fox_pos(&px, &py, &lift);
-  // the camera keeps Fang in the middle of the 160 px screen, within the 224 px area
-  if (dbg_cam) cam_x = dbg_cam - 1;
-  else {
-    int16_t want = px + 8 - 80;
-    if (want < 0) want = 0; if (want > (AREA_W - 20) * 8) want = (AREA_W - 20) * 8;
-    if (state == M_TRANS && trans_t == FADE) cam_x = (uint8_t)want;
-    else if (want > cam_x + 3) cam_x += 3; else if (want + 3 < cam_x) cam_x -= 3; else cam_x = (uint8_t)want;
+  static int16_t px, py;
+  static uint8_t i, lift, p, left, right, t8, fx, fy, ak, fl, half, bx, by, row, bit, slot, ax, ay, sy;
+  static int8_t oy;
+  // Fang
+  px = fox.x << 4; py = fox.y << 4; lift = 0;
+  if (fa.type != A_NONE) {
+    p = (fa.t << 3) / fa.d;
+    if (fa.type == A_HOP) {
+      uint8_t e = ease16[p];
+      px = fa.fx << 4; py = fa.fy << 4;
+      px += ((int16_t)fox.x - fa.fx) * e; py += ((int16_t)fox.y - fa.fy) * e;
+      lift = lift4[p];
+    } else if (fa.type == A_BUMP) px += bump2[p];
+    else if (fa.type == A_LUNGE) { px += ((int8_t)fa.fx - 1) * (int8_t)lunge6[p]; py += ((int8_t)fa.fy - 1) * (int8_t)lunge6[p]; }
   }
+  if (dbg_cam) cam_x = dbg_cam - 1;
+  else { uint8_t want = cam_want(px); if (want > cam_x + 3) cam_x += 3; else if (want + 3 < cam_x) cam_x -= 3; else cam_x = want; }
+  oy = shake_n ? ((frame_count & 2) ? (int8_t)shake_n : -(int8_t)shake_n) : 0;   // the screen shake, sprites included
   spr_clear();
-  uint8_t t8 = (uint8_t)frame_count;
-  spr_put(AK_FOX, anim.type == A_HOP ? 2 : (t8 >> 5) & 1, fox.dir < 0, 0, px + 8 - cam_x, (uint8_t)(py + 16 - lift));
-  // everything in the area: runs for up to 24 things every frame, so statics and arrays, 8-bit maths
-  static uint8_t i2, fl, half, bx, by, row, bit, phase, fx, fy, right_edge, ax, ay, r, w, slot;
-  fx = fox.x; fy = fox.y; right_edge = cam_x + 160;
-  for (i2 = 0; i2 < ent_n; i2++) {
-    fl = ent_flags[i2]; half = ent_half[i2]; bx = ent_bx[i2]; by = ent_by[i2]; row = ent_y[i2]; bit = 1 << row;
-    if (bx + half <= cam_x) {             // out of view on the left: an arrow at the edge for enemies
-      if (!(fl & KF_NPC) && !(left & bit)) { left |= bit; spr_put(AK_MARKER, 0, 0, 2, 4, by); }
-      continue;
+  t8 = (uint8_t)frame_count;
+  spr_put(AK_FOX, fa.type == A_HOP ? 2 : fa.type == A_LUNGE ? 3 : (t8 >> 5) & 1, fox.dir < 0, 0, px + 8 - cam_x, (uint8_t)(py + 16 - lift - oy));
+  fx = fox.x; fy = fox.y; left = right = 0;
+  // enemies
+  for (i = 0; i < en_n; i++) {
+    if (en_state[i] & EN_DEAD) continue;
+    ak = type_ak[en_type[i]]; if (ak == NONE) continue;
+    fl = kinds_rt[ak].flags; half = kinds_rt[ak].cols << 2; row = en_y[i]; bit = 1 << row;
+    bx = (en_x[i] << 4) + 8; by = (row << 4) + 16;
+    if (en_anim[i] != A_NONE) {   // walking from en_from, or lunging toward Fang
+      if (en_anim[i] == A_MOVE) {
+        p = (en_anim_t[i] << 3) / EN_MOVE_FRAMES;
+        uint8_t ox = (cell_col[en_from[i]] << 4) + 8, oyy = (cell_row[en_from[i]] << 4) + 16, e = ease16[p];
+        bx = ox + (uint8_t)((((int16_t)bx - ox) * e) >> 4); by = oyy + (uint8_t)((((int16_t)by - oyy) * e) >> 4) - lift2[p];
+      } else {
+        p = (en_anim_t[i] << 3) / EN_LUNGE_FRAMES;
+        int8_t dx = (int8_t)(en_from[i] & 3) - 1, dy = (int8_t)(en_from[i] >> 2) - 1;
+        bx += dx * (int8_t)lunge6[p]; by += dy * (int8_t)lunge6[p];
+      }
     }
-    if (bx >= right_edge + half) {
-      if (!(fl & KF_NPC) && !(right & bit)) { right |= bit; spr_put(AK_MARKER, 0, 1, 2, 156, by); }
-      continue;
-    }
-    phase = t8 + (i2 << 3);
-    if (fl & KF_FLIES) { ax = (uint8_t)(phase + (i2 << 3)) >> 4 & 3; by -= ax == 3 ? 1 : ax; }
-    ax = ent_x[i2]; ax = ax > fx ? ax - fx : fx - ax;
-    ay = row > fy ? row - fy : fy - row;
+    if (bx + half <= cam_x) { if (!(left & bit)) { left |= bit; spr_put(AK_MARKER, 0, 0, 3, 4, (row << 4) + 16); } continue; }
+    if (bx >= cam_x + 160 + half) { if (!(right & bit)) { right |= bit; spr_put(AK_MARKER, 0, 1, 3, 156, (row << 4) + 16); } continue; }
+    if (en_flash[i] & 2) continue;   // hit: blink
+    if (fl & KF_FLIES) { uint8_t b = (uint8_t)(t8 + (i << 4)) >> 4 & 3; by -= b == 3 ? 1 : b; }
+    ax = en_x[i] > fx ? en_x[i] - fx : fx - en_x[i]; ay = row > fy ? row - fy : fy - row;
     slot = spr_slot((fl & KF_BOSS) || ax + ay == 1 ? 1 : 2);
     if (slot == 0xFF) break;
-    spr_kind[slot] = ent_kind[i2];
-    spr_frame[slot] = fl & KF_FAST ? (phase >> 3) & 1 : (phase >> 5) & 1;   // about 0.13 s a frame for bats, 0.53 s for the rest
-    spr_flip[slot] = fx < ent_x[i2];
-    spr_x[slot] = bx - cam_x + 8; spr_y[slot] = by + 16;
-    r = (uint8_t)(by - 1) >> 4; w = half >> 2;
-    if ((spr_row[r] += w) > 10) spr_over = 1;
-    if ((fl & KF_TALL) && r && (spr_row[r - 1] += w) > 10) spr_over = 1;
+    spr_kind[slot] = ak;
+    spr_frame[slot] = en_frozen[i] ? 0 : (fl & KF_FAST) ? ((uint8_t)(t8 + (i << 3)) >> 3) & 1 : ((uint8_t)(t8 + (i << 3)) >> 5) & 1;
+    spr_flip[slot] = fx < en_x[i];
+    spr_x[slot] = bx - cam_x + 8; sy = by - oy; spr_y[slot] = sy + 16;
+    { uint8_t r = (uint8_t)(sy - 1) >> 4, w = half >> 2;
+      if ((spr_row[r] += w) > 10) spr_over = 1;
+      if ((fl & KF_TALL) && r && (spr_row[r - 1] += w) > 10) spr_over = 1; }
   }
+  dbg_ly[4] = LY_REG;   // after the foes
+  // friends and items: lookups for the cell's column and row (no dividing by 14), written straight into the list
+  for (i = 0; i < npc_n + item_n; i++) {
+    uint8_t c, prio;
+    if (i < npc_n) { ak = npc_ak[i]; c = npc_y[i]; bx = (npc_x[i] << 4) + 8; by = (c << 4) + 16; prio = 2; p = ((uint8_t)(t8 + (i << 4)) >> 5) & 1; bit = fx < npc_x[i]; }
+    else {
+      uint8_t k = i - npc_n;
+      if (!item_code[k]) continue;
+      ak = item_ak[item_code[k]]; if (ak == NONE) continue;
+      c = item_cell[k]; bx = (cell_col[c] << 4) + 8; c = cell_row[c]; by = (c << 4) + 16; prio = 3; p = 0; bit = 0;
+      if ((kinds_rt[ak].flags & KF_BOB) && ((uint8_t)(t8 + (k << 3)) & 32)) by--;
+    }
+    half = kinds_rt[ak].cols << 2;
+    if (bx + half <= cam_x || bx >= cam_x + 160 + half) continue;
+    slot = spr_slot(prio);
+    if (slot == 0xFF) break;
+    spr_kind[slot] = ak; spr_frame[slot] = p; spr_flip[slot] = bit;
+    spr_x[slot] = bx - cam_x + 8; sy = by - oy; spr_y[slot] = sy + 16;
+    { uint8_t r = (uint8_t)(sy - 1) >> 4; if ((spr_row[r] += half >> 2) > 10) spr_over = 1; }
+  }
+  dbg_ly[5] = LY_REG;   // after friends and items
+  // floating numbers rise for 40 frames above their cell
+  for (i = 0; i < FLOATS; i++) if (fl_t[i]) {
+    fl_t[i]--;
+    spr_put(AK_FLOAT, i, 0, 0, (int16_t)(fl_x[i] << 4) + 8 - cam_x, (fl_y[i] << 4) + 6 - ((FLOAT_LIFE - fl_t[i]) >> 2));
+  }
+  dbg_ly[6] = LY_REG;   // before the flush
   spr_flush();
+  dbg_ly[7] = LY_REG;
+  scroll_y = state == S_OVERVIEW ? 128 : (uint8_t)oy;
 }
 
 // ---------- one frame ----------
-static int8_t dir_dx(uint8_t j) { return j & J_RIGHT ? 1 : j & J_LEFT ? -1 : 0; }
-static int8_t dir_dy(uint8_t j) { return j & J_DOWN ? 1 : j & J_UP ? -1 : 0; }
+static int8_t dir_dx(uint8_t j) { return (j & J_RIGHT) ? 1 : (j & J_LEFT) ? -1 : 0; }
+static int8_t dir_dy(uint8_t j) { return (j & J_DOWN) ? 1 : (j & J_UP) ? -1 : 0; }
 
 void game_frame(uint8_t held, uint8_t pressed) {
+  uint8_t i;
   frame_count++;
-  if (anim.type != A_NONE && ++anim.t >= ANIM_FRAMES) anim.type = A_NONE;
-  if (state == M_TRANS) {
+  sfx_frame();
+  if (fa.type != A_NONE && ++fa.t >= fa.d) fa.type = A_NONE;
+  for (i = 0; i < en_n; i++) {
+    if (en_anim[i] != A_NONE && ++en_anim_t[i] >= (en_anim[i] == A_MOVE ? EN_MOVE_FRAMES : EN_LUNGE_FRAMES)) en_anim[i] = A_NONE;
+    if (en_flash[i]) en_flash[i]--;
+  }
+  if (shake_n && !(frame_count & 3)) shake_n--;
+  if (state == S_OVERVIEW) {
+    if (held & J_SELECT) return;
+    state = S_PLAY; scroll_y = 0; LCDC_REG |= LCDCF_OBJON;
+  }
+  if (state == S_TRANS) {
     trans_t++;
     if (trans_t <= FADE) pal_level = FADE - trans_t;
-    if (trans_t == FADE) enter_area(trans_to, trans_spawn);
+    if (trans_t == FADE) enter(trans_to, trans_spawn);
     if (trans_t > FADE) pal_level = trans_t - FADE;
     pal_dirty = 1;
-    if (trans_t == FADE * 2) state = M_PLAY;
-  } else if (pressed & J_SELECT) transition(area_idx + 1 == AREA_COUNT ? 0 : area_idx + 1, 0xFF);   // debug until the menus exist
-  else if (pressed & J_START) transition(area_idx ? area_idx - 1 : AREA_COUNT - 1, 0xFF);
-  else {
-    uint8_t dirs = pressed & (J_UP | J_DOWN | J_LEFT | J_RIGHT);
-    if (dirs && anim.type != A_NONE) queued = dirs;   // a tap during a move plays right after it
-    if (anim.type == A_NONE) {
-      uint8_t j = queued ? queued : held;
+    if (trans_t == FADE * 2) state = S_PLAY;
+  } else if (state == S_DEAD) {
+    if (dead_t < 255) dead_t++;
+    if (dead_t > 36 && (pressed & (J_A | J_START))) { state = S_PLAY; respawn(); }
+  } else if (dbg_goto) { transition(dbg_goto - 1, NONE); dbg_goto = 0; }
+  else if (pressed & J_START) transition(area_idx + 1 == AREA_COUNT ? 0 : area_idx + 1, NONE);   // debug until the pause menu exists
+  else if ((pressed & J_SELECT) && !busy()) {
+    state = S_OVERVIEW; overview_draw();
+    LCDC_REG &= ~LCDCF_OBJON; scroll_y = 128; cam_x = 0;
+    return;
+  } else {
+    // one action at a time: a press during an animation plays right after it (js input/queued)
+    uint8_t acts = pressed & (J_UP | J_DOWN | J_LEFT | J_RIGHT | J_A | J_B);
+    if (acts && busy()) queued = acts;
+    if (!busy()) {
+      uint8_t j = queued ? queued : (held & (J_UP | J_DOWN | J_LEFT | J_RIGHT)) | (pressed & (J_A | J_B));   // A and B act once per press
       queued = 0;
-      int8_t dx = dir_dx(j), dy = dx ? 0 : dir_dy(j);
-      if (dx || dy) do_action(dx, dy);
+      uint8_t acted = 1;
+      if (j & J_B) eat_fish();
+      else if (j & J_A) fire_spin();
+      else {
+        int8_t dx = dir_dx(j), dy = dx ? 0 : dir_dy(j);
+        if (dx || dy) do_action(dx, dy); else acted = 0;
+      }
+      // an action with no animation (asleep, tangled, a fish) still takes a step's time, so a held
+      // direction can't fire twice in two frames
+      if (acted && fa.type == A_NONE && state == S_PLAY) fox_anim(A_REST, 0, 0, 7);
     }
   }
+  dbg_ly[3] = LY_REG;   // after input and the rules
   hud_frame();
   draw();
 }
