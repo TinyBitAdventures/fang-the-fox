@@ -2,7 +2,7 @@
 // same order and drawing random numbers at the same moments, so tools/parity.js can play both
 // versions side by side. This part: the player's actions, items, hazards, areas, death, a new game.
 // combat.c has attacks, damage and bosses; turn.c the enemies' turn. Not here yet: puzzles and tile
-// changes on screen (phase 3), talking, signs, the shop and perk picks (phase 4), the ending (phase 5).
+// talking, signs, the shop and perk picks (phase 4), the ending (phase 5). puzzle.c has the puzzles.
 #pragma bank 255
 #include "rules.h"
 
@@ -16,14 +16,7 @@ uint8_t tele_n, tele_x[6], tele_y[6];
 uint16_t tele_fire_on;
 uint8_t in_enemy_loop, spot_x[24], spot_y[24];
 
-// ---------- Fox actions ----------
-static void bump(const char *text) { sfx_play(SFX_BUMP); fox_anim(A_BUMP, 0, 0, 7); if (text) hud_say(text); }
-static void move_fox(uint8_t nx, uint8_t ny) { fox_anim(A_HOP, fox.x, fox.y, 7); fox.x = nx; fox.y = ny; sfx_play(SFX_STEP); }
-static void crumble_behind(uint8_t i) {
-  if (tiles[i] != 'u') return;
-  set_tile(i, area_crumble_to); sfx_play(SFX_BOOM);
-  if (area_reform) add_temp(i, 'u', area_reform);
-}
+// ---------- Fox actions (bump, move_fox and crumble_behind are in rules.h) ----------
 void try_door(uint8_t i, uint8_t nx, uint8_t ny) BANKED {
   door_rt_t *d = 0;
   for (uint8_t k = 0; k < door_n; k++) if (doors[k].cell == i) d = &doors[k];
@@ -96,7 +89,7 @@ static void hazards_on(uint8_t x, uint8_t y, int8_t dx, int8_t dy) {
       if (!in_grid(nx, ny)) break;
       uint8_t nch = tile_at(nx, ny), ni = idx(nx, ny);
       if (nch == 'd' || nch == 'D') { if (slide) { fox.x = cx; fox.y = cy; try_door(ni, nx, ny); return; } break; }
-      if (is_solid(nch) || nch == '@' || occupied(nx, ny) || item_at(ni)) break;
+      if (is_solid(nch) || occupied(nx, ny) || item_at(ni)) break;
       cx = nx; cy = ny; moved++;
       if (!slide || nch != 'i') break;
     }
@@ -127,7 +120,10 @@ void fire_spin(void) BANKED {
   for (int8_t oy = -1; oy <= 1; oy++) for (int8_t ox = -1; ox <= 1; ox++) {
     if (!ox && !oy) continue;
     int8_t bx = fox.x + ox, by = fox.y + oy;
-    // braziers light in phase 3
+    if (in_grid(bx, by) && tiles[idx(bx, by)] == '*') {
+      uint8_t k = brazier_at(idx(bx, by));
+      if (!lit_t[k]) { lit_t[k] = area_brazier_time ? area_brazier_time : LIT_FOREVER; check_puzzle(); }
+    }
     uint8_t e = in_grid(bx, by) ? enemy_at(bx, by) : 0; if (!e) continue;
     e--;
     uint16_t dmg = calc_damage(&crit); if (mon(e)->flags & MF_FIREPROOF) dmg >>= 1;
@@ -150,14 +146,15 @@ void do_action(int8_t dx, int8_t dy) BANKED {
   uint8_t i = idx(nx, ny), ch = tiles[i];
   if (ch == 'd' || ch == 'D') { try_door(i, nx, ny); return; }
   if (ch == '?') { bump(0); return; }   // signs come in phase 4
-  if (ch == '*') { bump(0); return; }   // braziers come in phase 3
+  if (ch == '*') { light_brazier(i, nx, ny); return; }
   if (ch == '%') {
     if (keys) { keys--; set_tile(i, '_'); sfx_play(SFX_DOOR); hud_say("The Ancient Key turns. The gate swings open."); end_turn(); return; }
     bump("A locked gate. It needs an Ancient Key."); sfx_play(SFX_LOCKED); return;
   }
   if (ch == '#') { bump(has_plates() ? "A sealed gate. Something here must be weighed down..." : "A sealed gate. The braziers here are cold..."); sfx_play(SFX_LOCKED); return; }
   if (ch == '~') { bump("The Void yawns below. Better not!"); return; }
-  if (ch == '@') { bump("It won't budge."); return; }   // pushing blocks comes in phase 3
+  uint8_t blk = block_at(nx, ny);
+  if (blk) { push_block(blk - 1, dx, dy); return; }
   if (is_solid(ch)) { bump(ch == 'w' ? "Fang would rather not swim." : 0); return; }
   uint8_t it = item_at(i);
   if (it && item_code[it - 1] == IT_CHEST_LOCKED) {
@@ -184,6 +181,10 @@ void entered_area(void) BANKED {
   area_is_fresh = 0;
   area_entry = fox.y * COLS + fox.x;
   b_second_wind = 0; b_true_sight = 0; b_rooted = 0;
+  if (!area_solved) {   // unsolved puzzles reset when you come back
+    for (uint8_t b = 0; b < blk_n; b++) if (blk_x[b] != NONE) { blk_x[b] = cell_col[blk_o[b]]; blk_y[b] = cell_row[blk_o[b]]; }
+    memset(lit_t, 0, sizeof(lit_t));
+  }
   for (uint8_t i = 0; i < temp_n; ) {   // crumbled paths re-form, so leaving or falling can never strand a puzzle
     if (temp_orig[i] == 'u') { set_tile(temp_cell[i], 'u'); temp_n--; temp_cell[i] = temp_cell[temp_n]; temp_orig[i] = temp_orig[temp_n]; temp_t[i] = temp_t[temp_n]; }
     else i++;

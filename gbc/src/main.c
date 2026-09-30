@@ -22,6 +22,7 @@ void main(void) {
     wait_vbl_done();
     SCX_REG = cam_x; SCY_REG = scroll_y;
     pal_upload();
+    cells_frame();   // tile animation: first, so most of it lands in VBlank
     uint8_t j = joypad();
     dbg_ly[0] = LY_REG;
     game_frame(j, j & ~prev);

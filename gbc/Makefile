@@ -21,12 +21,17 @@ $(GEN_STAMP): tools/build.js $(wildcard tools/lib/*.js) overrides.js $(WEB) $(wi
 	node tools/build.js
 	@touch $@
 
+# a source compiles again when it, a header or the Makefile is newer than its object (the generator
+# only rewrites the files whose content changed); objects whose source went away are dropped
 $(ROM): $(GEN_STAMP) $(SRC) $(wildcard src/*.h) Makefile
 	@mkdir -p $(OBJDIR)
-	@rm -f $(OBJDIR)/*.o $(OBJDIR)/*.rel
 	@for f in $(SRC) src/gen/*.c; do \
-	  $(LCC) $(LCCFLAGS) -c -o $(OBJDIR)/$$(basename $$f .c).o $$f || exit 1; \
+	  o=$(OBJDIR)/$$(basename $$f .c).o; \
+	  if [ ! -f $$o ] || [ $$f -nt $$o ] || [ -n "$$(find src/*.h src/gen/*.h src/gen/*.inc Makefile -newer $$o 2>/dev/null | head -1)" ]; then \
+	    echo "  cc $$f"; $(LCC) $(LCCFLAGS) -c -o $$o $$f || { rm -f $$o; exit 1; }; \
+	  fi; \
 	done
+	@for o in $(OBJDIR)/*.o; do n=$$(basename $$o .o); [ -f src/$$n.c ] || [ -f src/gen/$$n.c ] || rm -f $$o; done
 	$(LCC) $(LCCFLAGS) -Wl-llib/hUGEDriver/hUGEDriver.lib -o $(ROM) $(OBJDIR)/*.o
 	@rm -f build/*.ihx build/*.cdb 2>/dev/null; true   # keeps fang.noi (symbols, for tests) and fang.map
 

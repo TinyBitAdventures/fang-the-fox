@@ -3,8 +3,13 @@
 const zlib = require('zlib'), fs = require('fs');
 
 module.exports = function gfx(PAL) {
-  const rgbOf = k => { const h = PAL[k]; return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; };
-  const dist = (a, b) => { const A = rgbOf(a), B = rgbOf(b), rm = (A[0] + B[0]) / 2, dr = A[0] - B[0], dg = A[1] - B[1], db = A[2] - B[2]; return (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db; };
+  const rgbCache = new Map(), distCache = new Map();   // the build asks for the same colours millions of times
+  const rgbOf = k => { let c = rgbCache.get(k); if (!c) { const h = PAL[k]; c = [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; rgbCache.set(k, c); } return c; };
+  const dist = (a, b) => {
+    const key = a + b; let d = distCache.get(key);
+    if (d === undefined) { const A = rgbOf(a), B = rgbOf(b), rm = (A[0] + B[0]) / 2, dr = A[0] - B[0], dg = A[1] - B[1], db = A[2] - B[2]; d = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db; distCache.set(key, d); }
+    return d;
+  };
   const luma = k => { const [r, g, b] = rgbOf(k); return 0.299 * r + 0.587 * g + 0.114 * b; };
   const to555 = k => { const [r, g, b] = rgbOf(k); return (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10); };
   const from555 = v => [v & 31, (v >> 5) & 31, (v >> 10) & 31].map(c => (c << 3) | (c >> 2));

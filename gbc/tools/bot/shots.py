@@ -39,7 +39,9 @@ for n in range(count):
     diff = np.any((full >> 3) != (preview[cy:cy + 128, cx:cx + 224] >> 3), axis=2)
     if diff.any():
         ys, xs = np.nonzero(diff)
-        bad.append(f'area {n + 1}: {int(diff.sum())} pixels differ, first at x={xs[0]} y={ys[0]}')
+        bad.append(f'area {n + 1}: {int(diff.sum())} pixels differ, first at x={xs[0]} y={ys[0]} (build/shots/diff-{n + 1}.png)')
+        mark = full.copy(); mark[diff] = (255, 0, 255)   # the ROM, the preview, the ROM with the differences in magenta
+        Image.fromarray(np.concatenate([full, preview[cy:cy + 128, cx:cx + 224], mark], axis=0)).resize((448, 768), Image.NEAREST).save(out / f'diff-{n + 1}.png')
     if rom.area() != n: bad.append(f'expected area {n} on screen, the ROM is in area {rom.area()}')
     rom.tap('start', 2)                                       # debug: next area
 rom.stop()

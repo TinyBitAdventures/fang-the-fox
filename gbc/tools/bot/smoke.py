@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # Smoke test: Fang walks, trees and the island's edge stop him, the camera follows, a door takes him
-# to the right area and cell, the music plays, SELECT shows the overview.
+# to the right area and cell, the music plays, SELECT shows the overview; the world on screen changes
+# with the rules (braziers and their gate, a block on a plate, a Treant hiding as a tree).
 # usage: gbc/.venv/bin/python gbc/tools/bot/smoke.py
-import sys
+import re, sys
 import numpy as np
-from rom import Rom
+from rom import Rom, GBC
+
+LK = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define LK_(\w+) (\d+)', (GBC / 'src/gen/world.h').read_text())}
 
 fails = []
 def check(ok, what):
@@ -52,5 +55,30 @@ rom.poke('dbg_goto', 5); rom.tick(60)
 rom.poke('fox', 12, 8); rom.poke('fox', 5, 9); rom.tick(4)
 rom.tap('down', 60)
 check(rom.area() == 5, "the Lake Tower's goo door now leads to the Dark Woods")
+
+# the changing world: a cell's look follows the rules, and its background is redrawn
+def bg(cell):   # the cell's 4 tile numbers in the background map
+    x, y = cell % 14 * 2, cell // 14 * 2
+    return [rom.pb.memory[0x9800 + (y + r) * 32 + x + c] for r in (0, 1) for c in (0, 1)]
+def spin_at(x, y):
+    rom.poke('b_spin_cd', 0); rom.poke('fox', x, 8); rom.poke('fox', y, 9); rom.tick(2); rom.tap('a', 20)
+rom.poke('dbg_goto', 8); rom.tick(60)   # Hollow Path: three braziers and a gate
+rom.poke('en_n', 0); rom.poke('perks', 1 << 3)   # Fire Spin, and no foes in the way
+gate = bg(51)
+spin_at(2, 2); spin_at(6, 3)
+check(rom.u8('tiles', 51) == ord('#') and all(rom.u8('lit_t', k) for k in range(2)), 'Fire Spin lights two braziers; the gate stays shut')
+spin_at(2, 6); rom.tick(10)
+check(rom.u8('tiles', 51) == ord('_') and rom.u8('look_now', 51) == LK['FLOOR'] and bg(51) != gate, 'the third brazier opens the gate, and its cells are redrawn as floor')
+rom.poke('dbg_goto', 10); rom.tick(60)   # Crystal Depths: blocks and pressure plates
+rom.poke('en_n', 0); rom.poke('fox', 2, 8); rom.poke('fox', 2, 9); rom.tick(2)
+plate = bg(35)
+for _ in range(4): rom.tap('right', 14)
+rom.tick(10)
+check(rom.u8('blk_x') == 7 and rom.u8('look_now', 35) == LK['PLATE_ON'] and bg(35) != plate, 'a block pushed onto a pressure plate presses it down on screen')
+rom.poke('dbg_goto', 19); rom.tick(60)   # Whispering Woods: a Treant at (4,2)
+check(rom.u8('look_now', 32) == LK['CAMO'], 'a Treant that has not woken is drawn as a tree')
+rom.poke('fox', 3, 8); rom.poke('fox', 2, 9); rom.poke('fox', 99, 10); rom.tick(2)
+rom.tap('right', 20); rom.tick(10)
+check(rom.u8('look_now', 32) == LK['FLOOR'], 'bumping it wakes it: the tree is gone from the background')
 rom.stop()
 if fails: sys.exit(1)

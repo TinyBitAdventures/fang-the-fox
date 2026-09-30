@@ -20,49 +20,29 @@ for (const [k, v] of Object.entries(OV.areas || {})) Object.assign(W.AREAS[k], v
 const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT, TRACKS, KITS } = W;
 const G = require('./lib/gfx')(PAL), SONG = require('./lib/song');
 
-const COLS = 14, ROWS = 8, GX = 80, GY = 54;   // web grid origin, used by the floor-variant hash
+const COLS = 14, ROWS = 8, CELLS_N = COLS * ROWS, GX = 80, GY = 54;   // web grid origin, used by the floor-variant hash
 const AREA_KEYS = Object.keys(AREAS), BIOME_KEYS = Object.keys(BIOMES), TRACK_KEYS = Object.keys(TRACKS);
-const TERRAIN_PALS = 5, MAX_STATIC_TILES = 256, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
+const TERRAIN_PALS = 5, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
 const problems = [];
 const hash2 = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const cName = s => s.replace(/[^a-z0-9_]/gi, '_');
 const spr = name => { const s = SPRITES[name]; if (!s) throw new Error(`missing sprite ${name}`); return s; };
 
-// ---------- what each cell shows at the start (mirrors makeArea + applyWhenDoors + drawWorld) ----------
-function initialTiles(A) {
-  const t = A.map.join('').split('').map(ch => (MONSTERS[ch] || ITEMS[ch] || ch === 'F' || ch === '&') ? '_' : ch);
+// ---------- what each cell starts as (mirrors makeArea + applyWhenDoors) ----------
+function initialTiles(A) {   // things that move (monsters, items, friends, blocks) stand on floor
+  const t = A.map.join('').split('').map(ch => (MONSTERS[ch] || ITEMS[ch] || ch === 'F' || ch === '&' || ch === '@') ? '_' : ch);
   for (const [i, d] of Object.entries(A.doors)) if (d.when) t[i] = t[i] === 'd' ? '_' : t[i];
   return t;
 }
 function floorOf(key, A, gx, gy) { const [g, n] = BIOMES[A.biome].ground; return g + '_' + Math.floor(hash2(GX + gx * 16, GY + gy * 16 + key.length) * n); }
-function doorStyle(A, ch, i) { const d = A.doors[i]; if (ch === 'D') return 'secretdoor'; return d ? d.style : 'hole'; }
-function flatOf(A, ch, i) {
-  const flat = { w: 'water_0', l: 'lava_0', '=': 'bridge', u: 'crumble', '+': 'plate', i: 'ice', x: 'snowdrift', e: 'vines', v: 'vent_0' };
-  if (flat[ch]) return flat[ch];
-  if (ch === '~') return 'void_' + (i % 3);
-  if (ch === 'd' || ch === 'D') { const st = doorStyle(A, ch, i); if (st === 'hole' || st === 'rift') return st; }
-  return null;
-}
-function tallOf(A, ch, i, gx, gy) {
+function treeOf(A, gx, gy) {
   const b = A.biome;
-  if (ch === 'T') {
-    let name = BIOMES[b].tree;
-    if (b === 'woods' || b === 'night' || b === 'lake' || b === 'pond') name = hash2(gx, gy) < 0.5 ? 'tree' : 'tree_b';
-    if (b === 'enchanted') name = hash2(gx, gy) < 0.6 ? 'tree_magic' : 'tree';
-    if (b === 'volcanic') name = 'tree_dead';
-    if (b === 'grotto' || b === 'burrow') name = hash2(gx, gy) < 0.5 ? 'tree_b' : 'tree';
-    return name;
-  }
-  if (ch === '@') return b === 'frozen' ? 'block_ice' : 'block';
-  if (TERRAIN[ch] && TERRAIN[ch].spr) return TERRAIN[ch].spr;
-  if (ch === 'd' || ch === 'D') {
-    const st = doorStyle(A, ch, i), d = A.doors[i];
-    if (d && d.req === 'gooking') return 'gate_goo';
-    if (st === 'arch' || st === 'secretdoor') return st;
-    if (st === 'portal') return 'portal_0';
-  }
-  if (ch === 'p') return 'portal_0';
-  return null;
+  let name = BIOMES[b].tree;
+  if (b === 'woods' || b === 'night' || b === 'lake' || b === 'pond') name = hash2(gx, gy) < 0.5 ? 'tree' : 'tree_b';
+  if (b === 'enchanted') name = hash2(gx, gy) < 0.6 ? 'tree_magic' : 'tree';
+  if (b === 'volcanic') name = 'tree_dead';
+  if (b === 'grotto' || b === 'burrow') name = hash2(gx, gy) < 0.5 ? 'tree_b' : 'tree';
+  return name;
 }
 function blit(img, w, h, name, dx, dy, clipTop = 0) {
   spr(name).rows.forEach((row, yy) => { for (let xx = 0; xx < row.length; xx++) {
@@ -71,45 +51,213 @@ function blit(img, w, h, name, dx, dy, clipTop = 0) {
     img[Y * w + X] = ch;
   } });
 }
-// one area as a 224x128 image of palette keys; tall sprites of a cell overhang into the cell above
-function composeArea(key) {
-  const A = AREAS[key], tiles = initialTiles(A), img = new Array(224 * 128);
-  const tall = tiles.map((ch, i) => tallOf(A, ch, i, i % COLS, (i / COLS) | 0));
-  for (let gy = 0; gy < ROWS; gy++) for (let gx = 0; gx < COLS; gx++) {
-    const i = gy * COLS + gx, ch = tiles[i], cell = new Array(256);
-    blit(cell, 16, 16, floorOf(key, A, gx, gy), 0, 0);
-    const fl = flatOf(A, ch, i); if (fl) blit(cell, 16, 16, fl, 0, 0);
-    if (tall[i]) { const s = spr(tall[i]); blit(cell, 16, 16, tall[i], Math.round(8 - s.w / 2), 16 - s.h); }
-    const below = gy < ROWS - 1 ? i + COLS : -1;
-    if (below >= 0 && tall[below]) {
-      const s = spr(tall[below]), isDoor = c => c === 'd' || c === 'D';
-      const clip = s.h > 18 && isDoor(ch) && !isDoor(tiles[below]) ? 14 : 0;   // a tall obstacle never hides the doorway above it
-      blit(cell, 16, 16, tall[below], Math.round(8 - s.w / 2), 32 - s.h, clip);
-    }
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) img[(gy * 16 + y) * 224 + gx * 16 + x] = cell[y * 16 + x];
-  }
-  return { img, tiles };
-}
 const cut = (img, w, tx, ty, th = 8) => { const t = []; for (let y = 0; y < th; y++) for (let x = 0; x < 8; x++) t.push(img[(ty * th + y) * w + tx * 8 + x]); return t; };
 
-// ---------- background: one tileset and 5 palettes per biome ----------
-const composed = Object.fromEntries(AREA_KEYS.map(k => [k, composeArea(k)]));
+// ---------- cells: every look a cell can take, drawn over the look of the cell below it ----------
+// A cell's picture depends on its floor, its own look and the tall sprite of the cell below, which
+// hangs into it (drawWorld sorts by y). The build draws every pairing that can happen in play; the ROM
+// works out each cell's look from the rules' state (cells.c cell_look) and redraws a cell and the one
+// above it when a look changes. DOOR is the cell's own door style (hole, rift, arch or portal); CAMO is
+// a Treant hiding as a tree (view.js draws tree_magic in its place), drawn in the background until it wakes.
+const LOOKS = ['FLOOR', 'ICE', 'LAVA', 'VOID', 'WATER', 'BRIDGE', 'CRUMBLE', 'PLATE', 'PLATE_ON', 'SNOWDRIFT', 'VINES', 'VENT', 'VENT_PUFF', 'FOG',
+  'BRAZIER', 'GATE', 'LOCKGATE', 'SIGN', 'ROCK', 'BRICK', 'SNOWWALL', 'BASALT', 'TREE', 'PORTAL', 'CAMO', 'DOOR', 'DOOR_SECRET', 'GATE_GOO'];
+const L = Object.fromEntries(LOOKS.map((k, i) => [k, i]));
+const isDoorLook = l => l >= L.DOOR;   // the looks of 'd' and 'D' cells (view.js trims tall sprites below them)
+const MAX_CELL_LOOKS = 5;
+// animators: tiles that change over time, and their frame length (the web's ms at 60 frames a second).
+// A lit brazier's flame is a sprite (kind "flame") over the cold brazier: its colours never fit a
+// background palette next to the floor.
+const ANIM_NAMES = ['none', 'portal', 'liquid', 'void'], ANIM_FRAMES = [0, 8, 16, 24];   // 140, 260, 400 ms
+function lookArt(A, i, look, f) {   // what a look draws at animation frame f (0-2)
+  const gx = i % COLS, gy = (i / COLS) | 0, d = A.doors[i], style = d ? d.style : 'hole';
+  switch (look) {
+    case L.ICE: return { flat: 'ice' };
+    case L.LAVA: return { flat: 'lava_' + f, anim: 2 };
+    case L.VOID: return { flat: 'void_' + ((f + i) % 3), anim: 3 };
+    case L.WATER: return { flat: 'water_' + f, anim: 2 };
+    case L.BRIDGE: return { flat: 'bridge' };
+    case L.CRUMBLE: return { flat: 'crumble' };
+    case L.PLATE: return { flat: 'plate' };
+    case L.PLATE_ON: return { flat: 'plate_on' };
+    case L.SNOWDRIFT: return { flat: 'snowdrift' };
+    case L.VINES: return { flat: 'vines' };
+    case L.VENT: return { flat: 'vent_0' };
+    case L.VENT_PUFF: return { flat: 'vent_1' };
+    case L.FOG: return { fog: 'fog' };
+    case L.BRAZIER: return { tall: 'brazier_off' };
+    case L.GATE: return { tall: 'gate' };
+    case L.LOCKGATE: return { tall: 'lockgate' };
+    case L.SIGN: return { tall: 'sign' };
+    case L.ROCK: return { tall: 'rock' };
+    case L.BRICK: return { tall: 'brick' };
+    case L.SNOWWALL: return { tall: 'snowwall' };
+    case L.BASALT: return { tall: 'basalt' };
+    case L.TREE: return { tall: treeOf(A, gx, gy) };
+    case L.PORTAL: return { tall: 'portal_' + f, anim: 1 };
+    case L.CAMO: return { tall: 'tree_magic' };
+    case L.DOOR: return style === 'hole' || style === 'rift' ? { flat: style } : style === 'portal' ? { tall: 'portal_' + f, anim: 1 } : { tall: style };
+    case L.DOOR_SECRET: return { tall: 'secretdoor' };
+    case L.GATE_GOO: return { tall: 'gate_goo' };
+    default: return {};
+  }
+}
+// what can change in an area: foes that leave ice or lava (and the ones they summon), blocks to push
+function areaCaps(A) {
+  const types = new Set([...A.map.join('')].filter(ch => MONSTERS[ch]));
+  for (const t of [...types]) if (MONSTERS[t].summon) types.add(MONSTERS[t].summon);
+  const ms = [...types].map(t => [t, MONSTERS[t]]);
+  return {
+    ice: ms.some(([t, m]) => m.shatter || m.trail === 'i' || t === 'Y'),
+    lava: ms.some(([t, m]) => m.trail === 'l' || t === 'Q'),
+    blocks: A.map.join('').includes('@'),
+  };
+}
+// every tile a cell can hold during play (js/game.js: trails, the eruption, blocks sinking into water
+// and lava, gates opening, crumbling, doors that appear), starting with the one it starts with
+function cellChars(A, tiles, i, caps) {
+  const chars = [tiles[i]], d = A.doors[i];
+  if (d && d.when && !chars.includes('d')) chars.push('d');
+  for (let k = 0; k < chars.length; k++) {
+    const ch = chars[k], next = [];
+    if (ch === '_') { if (caps.ice) next.push('i'); if (caps.lava) next.push('l'); }
+    if (ch === 'l' && caps.blocks) next.push('_');
+    if (ch === 'w' && caps.blocks) next.push('=');
+    if (ch === '#' || ch === '%') next.push('_');
+    if (ch === 'u') next.push(A.crumbleTo || '~');
+    for (const n of next) if (!chars.includes(n)) chars.push(n);
+  }
+  return chars;
+}
+function charLooks(A, ch, i) {
+  const d = A.doors[i];
+  switch (ch) {
+    case 'i': return [L.ICE]; case 'l': return [L.LAVA]; case '~': return [L.VOID]; case 'w': return [L.WATER]; case '=': return [L.BRIDGE];
+    case 'u': return [L.CRUMBLE]; case '+': return [L.PLATE, L.PLATE_ON]; case 'x': return [L.SNOWDRIFT]; case 'e': return [L.VINES];
+    case 'v': return [L.VENT, L.VENT_PUFF]; case 'o': return [L.FOG, L.FLOOR]; case '*': return [L.BRAZIER];
+    case '#': return [L.GATE]; case '%': return [L.LOCKGATE]; case '?': return [L.SIGN]; case 'r': return [L.ROCK]; case 'b': return [L.BRICK];
+    case 'n': return [L.SNOWWALL]; case 'y': return [L.BASALT]; case 'T': return [L.TREE]; case 'p': return [L.PORTAL];
+    case 'd': return d && d.req === 'gooking' ? [L.GATE_GOO, L.DOOR] : [L.DOOR];
+    case 'D': return [L.DOOR_SECRET, L.DOOR];
+    default: return [L.FLOOR];
+  }
+}
+function cellLooks(A, tiles, i, caps) {   // the looks a cell can take, its starting look first
+  const looks = [];
+  for (const ch of cellChars(A, tiles, i, caps)) for (const l of charLooks(A, ch, i)) if (!looks.includes(l)) looks.push(l);
+  const m = MONSTERS[A.map.join('')[i]]; if (m && m.camo) looks.unshift(L.CAMO);   // hidden at the start
+  return looks;
+}
+// one cell's 16x16 picture for its look a (frame fa) under the overhang of the look below, b (frame fb)
+function composeCell(key, A, i, a, b, fa, fb) {
+  const cell = new Array(256), gx = i % COLS, gy = (i / COLS) | 0;
+  blit(cell, 16, 16, floorOf(key, A, gx, gy), 0, 0);
+  const art = lookArt(A, i, a, fa);
+  if (art.flat) blit(cell, 16, 16, art.flat, 0, 0);
+  if (art.tall) { const s = spr(art.tall); blit(cell, 16, 16, art.tall, Math.round(8 - s.w / 2), 16 - s.h); }
+  if (art.fog) { blit(cell, 16, 16, art.fog, 0, 0); blit(cell, 16, 16, art.fog, 0, -3); }
+  if (b !== null) {
+    const below = lookArt(A, i + COLS, b, fb);
+    if (below.tall) {
+      const s = spr(below.tall);
+      const clip = s.h > 18 && isDoorLook(a) && !isDoorLook(b) ? 14 : 0;   // a tall obstacle never hides the doorway above it
+      blit(cell, 16, 16, below.tall, Math.round(8 - s.w / 2), 32 - s.h, clip);
+    }
+  }
+  return cell;
+}
+
+// ---------- background: one tileset and 5 palettes per biome, from every cell pairing ----------
+const MAX_BG_TILES = 256;   // 0x9000 in both VRAM banks (0x8800: the HUD in bank 0, dialogue in bank 1); tileRef can go to 384
 const biomeOut = {}, areaOut = {};
+const cellInfo = {};        // per area: looks per cell, metatiles
+for (const key of AREA_KEYS) {
+  const A = AREAS[key], tiles = initialTiles(A), caps = areaCaps(A);
+  cellInfo[key] = { tiles, looks: tiles.map((_, i) => cellLooks(A, tiles, i, caps)) };
+  cellInfo[key].looks.forEach((ls, i) => { if (ls.length > MAX_CELL_LOOKS) problems.push(`${key}: cell ${i} can take ${ls.length} looks (${MAX_CELL_LOOKS} at most)`); });
+}
+const tileKey = t => t.join('');
 for (const b of BIOME_KEYS) {
   const keys = AREA_KEYS.filter(k => AREAS[k].biome === b); if (!keys.length) continue;
+  // every pairing's 4 tiles, each a list of frames (1, or 3 for animated tiles)
   const raw = [];
-  for (const k of keys) for (let ty = 0; ty < 16; ty++) for (let tx = 0; tx < 28; tx++) raw.push({ k, tx, ty, t: G.reduceTile(cut(composed[k].img, 224, tx, ty), 4) });
-  const pals = G.solvePalettes(raw.map(r => r.t), TERRAIN_PALS), set = new G.TileSet();
-  let errPx = 0;
-  for (const k of keys) areaOut[k] = { map: new Array(448), attr: new Array(448), shown: new Array(224 * 128) };
-  for (const r of raw) {
-    const { pal, idx } = G.bestPalette(r.t, pals), [n, flip] = set.add(idx), o = areaOut[r.k], at = r.ty * 28 + r.tx;
-    o.map[at] = n & 127; o.attr[at] = pal | (n >= 128 ? 0x08 : 0) | flip;
-    const orig = cut(composed[r.k].img, 224, r.tx, r.ty);
-    for (let p = 0; p < 64; p++) { const c = pals[pal][idx[p]]; o.shown[(r.ty * 8 + (p >> 3)) * 224 + r.tx * 8 + (p & 7)] = c; if (c !== orig[p]) errPx++; }
+  for (const key of keys) {
+    const A = AREAS[key], ci = cellInfo[key], metas = [];
+    ci.metaBase = []; ci.metas = metas;
+    for (let i = 0; i < CELLS_N; i++) {
+      ci.metaBase[i] = metas.length;
+      const below = i + COLS < CELLS_N ? ci.looks[i + COLS] : [null];
+      for (const a of ci.looks[i]) for (const bl of below) {
+        const animA = lookArt(A, i, a, 0).anim || 0, animB = bl === null ? 0 : (lookArt(A, i + COLS, bl, 0).anim || 0);
+        const anim = animA || animB, nf = anim ? 3 : 1;
+        const imgs = [];
+        for (let f = 0; f < nf; f++) imgs.push(composeCell(key, A, i, a, bl, animA ? f : 0, animB && (!animA || animA === animB) ? f : 0));
+        const m = { tiles: [] };
+        for (let q = 0; q < 4; q++) {
+          const frames = imgs.map(img => G.reduceTile(cut(img, 16, q & 1, q >> 1), 4));
+          const same = frames.every(fr => tileKey(fr) === tileKey(frames[0]));
+          const r = { key, anim: same ? 0 : anim, frames: same ? [frames[0]] : frames };
+          raw.push(r); m.tiles.push(r);
+        }
+        metas.push(m);
+      }
+    }
   }
-  if (set.tiles.length > MAX_STATIC_TILES) problems.push(`biome ${b}: ${set.tiles.length} static tiles (budget ${MAX_STATIC_TILES})`);
-  biomeOut[b] = { tiles: set.tiles, pals, keys, errPx, px: raw.length * 64 };
+  const pals = G.solvePalettes(raw.flatMap(r => r.frames), TERRAIN_PALS);
+  // each tile: the palette that suits all its frames, then its colour indices (the same tile comes up often)
+  const fit = new Map();
+  const fitOf = fr => { const k = tileKey(fr); let v = fit.get(k); if (!v) { v = pals.map(p => G.bestPalette(fr, [p])); fit.set(k, v); } return v; };
+  for (const r of raw) {
+    const fits = r.frames.map(fitOf);
+    let best = 0, bestErr = Infinity;
+    pals.forEach((_, pi) => { const e = fits.reduce((s, f) => s + f[pi].err, 0); if (e < bestErr) { bestErr = e; best = pi; } });
+    r.pal = best; r.idx = fits.map(f => f[best].idx);
+  }
+  // unique tiles (flips count as the same tile), animated ones first and grouped by animator
+  const flipX = t => t.map((_, j) => t[(j & ~7) + 7 - (j & 7)]), flipY = t => t.map((_, j) => t[(7 - (j >> 3)) * 8 + (j & 7)]);
+  const seqKey = (anim, seq) => anim + ':' + seq.map(tileKey).join('|');
+  const uniq = new Map(), order = [];
+  for (const r of raw) {
+    let hit = null;
+    for (const [fl, fn] of [[0, t => t], [0x20, flipX], [0x40, flipY], [0x60, t => flipX(flipY(t))]]) { const k = seqKey(r.anim, r.idx.map(fn)); if (uniq.has(k)) { hit = [uniq.get(k), fl]; break; } }
+    if (!hit) { const u = { anim: r.anim, idx: r.idx }; uniq.set(seqKey(r.anim, r.idx), u); order.push(u); hit = [u, 0]; }
+    r.u = hit[0]; r.flip = hit[1];
+  }
+  order.sort((x, y) => (x.anim || 99) - (y.anim || 99));
+  order.forEach((u, n) => { u.id = n; });
+  if (order.length > MAX_BG_TILES) problems.push(`biome ${b}: ${order.length} background tiles (budget ${MAX_BG_TILES})`);
+  // animated tiles: a run per animator, split where the VRAM block changes (tile 128 and 256)
+  const segments = [];
+  for (let a = 1; a < ANIM_NAMES.length; a++) {
+    const us = order.filter(u => u.anim === a);
+    for (let n = 0; n < us.length; ) {
+      const first = us[n].id, lim = first < 128 ? 128 : first < 256 ? 256 : 384;
+      let m = n; while (m < us.length && us[m].id < lim) m++;
+      segments.push({ anim: a, first, tiles: us.slice(n, m) });
+      n = m;
+    }
+  }
+  let errPx = 0, px = 0;
+  for (const r of raw) { px += 64; r.frames[0].forEach((k, j) => { if (pals[r.pal][r.idx[0][j]] !== k) errPx++; }); }
+  biomeOut[b] = { order, pals, keys, segments, errPx, px };
+}
+// a tile number in the map and its attribute bits: 0-127 at 0x9000 in VRAM bank 0, 128-255 at 0x9000 in bank 1, 256- at 0x8800 in bank 1
+const tileRef = (u, pal, flip) => ({ map: u.id < 128 ? u.id : u.id < 256 ? u.id - 128 : 128 + (u.id - 256), attr: pal | (u.id >= 128 ? 0x08 : 0) | flip });
+for (const key of AREA_KEYS) {
+  const ci = cellInfo[key], out = { meta: [], shown: new Array(224 * 128) };
+  for (const m of ci.metas) { const t = m.tiles.map(r => tileRef(r.u, r.pal, r.flip)); out.meta.push(...t.map(x => x.map), ...t.map(x => x.attr)); }
+  out.cellRecs = ci.looks.map((ls, i) => `${ci.metaBase[i]}, ${ls.length}, { ${ls.concat(new Array(MAX_CELL_LOOKS - ls.length).fill(0xFF)).join(', ')} }`);
+  out.dyn = ci.looks.map((ls, i) => (ls.length > 1 ? i : -1)).filter(i => i >= 0);
+  // cells whose look can change without their tile changing: plates, vents, doors that open or appear
+  const COND = [L.PLATE, L.VENT, L.DOOR, L.GATE_GOO, L.DOOR_SECRET];
+  out.cond = ci.looks.map((ls, i) => (ls.length > 1 && ls.some(l => COND.includes(l)) ? i : -1)).filter(i => i >= 0);
+  if (out.cond.length > 16) problems.push(`${key}: ${out.cond.length} cells change look on their own (16 at most)`);
+  // the starting picture (every cell's first look, frame 0), for the preview and shots.py
+  const pals = biomeOut[AREAS[key].biome].pals;
+  for (let i = 0; i < CELLS_N; i++) {
+    const m = ci.metas[ci.metaBase[i]], gx = i % COLS, gy = (i / COLS) | 0;
+    m.tiles.forEach((r, q) => { for (let p = 0; p < 64; p++) out.shown[(gy * 16 + (q >> 1) * 8 + (p >> 3)) * 224 + gx * 16 + (q & 1) * 8 + (p & 7)] = pals[r.pal][r.idx[0][p]]; });
+  }
+  areaOut[key] = out;
 }
 
 // ---------- sprites: every kind of thing that moves, in 8x16 sprite tiles ----------
@@ -118,18 +266,20 @@ for (const b of BIOME_KEYS) {
 const NPC_SPR = { grandma: 'grandma', hoot: 'hoot', rudy: 'rudy', lumen: 'lumen', queen: 'queen' };
 const NPC_IDS = ['grandma', 'hoot', 'rudy', 'lumen', 'queen', ...KITS];
 const npcKind = id => (KITS.includes(id) ? 'kit' : NPC_SPR[id]);
+const blockKind = A => (A.biome === 'frozen' ? 'block_ice' : 'block');
 const mKind = ch => 'm_' + MONSTERS[ch].spr;
 const IT = Object.keys(ITEMS);                 // item codes are 1 + the index here
 const itemCode = k => IT.indexOf(k) + 1;
 const iKind = k => 'i_' + ITEMS[k].spr;
-const KF = { FLIES: 1, BOSS: 2, NPC: 4, FAST: 8, TALL: 16, ITEM: 32, BOB: 64 };
+const KF = { FLIES: 1, BOSS: 2, NPC: 4, FAST: 8, TALL: 16, ITEM: 32, BOB: 64, CAMO: 128 };   // CAMO: hidden in the background as a tree until revealed
 function kindDef(name) {
   if (name === 'fox') return { frames: ['fox_0', 'fox_1', 'fox_hop', 'fox_attack'], flags: 0, share: null };
   if (name === 'kit') return { frames: ['kit_0', 'kit_1'], flags: KF.NPC, share: 'fox' };
   if (Object.values(NPC_SPR).includes(name)) return { frames: [name + '_0', name + '_1'], flags: KF.NPC };
+  if (name === 'block' || name === 'block_ice') return { frames: [name], flags: 0 };
   if (name.startsWith('i_')) { const k = IT.find(k => iKind(k) === name); return { frames: [ITEMS[k].spr], flags: KF.ITEM | (k === 'C' || k === 'L' ? 0 : KF.BOB), item: k }; }
   const m = Object.values(MONSTERS).find(m => 'm_' + m.spr === name);   // monster kinds are "m_<sprite>" (map letters differ only by case)
-  return { frames: [m.spr + '_0', m.spr + '_1'], flags: (m.flies ? KF.FLIES : 0) | (m.boss ? KF.BOSS : 0) | (m.spr === 'bat' ? KF.FAST : 0), pals: m.boss ? 2 : 1 };
+  return { frames: [m.spr + '_0', m.spr + '_1'], flags: (m.flies ? KF.FLIES : 0) | (m.boss ? KF.BOSS : 0) | (m.spr === 'bat' ? KF.FAST : 0) | (m.camo ? KF.CAMO : 0), pals: m.boss ? 2 : 1 };
 }
 function pieces(frames) {   // all 8x16 pieces of all frames, and the box
   const w = Math.max(...frames.map(f => spr(f).w)), h = Math.max(...frames.map(f => spr(f).h));
@@ -163,6 +313,18 @@ function buildKind(name) {
 // the edge marker: an arrow pointing left (flipped for the right edge), in the effects palette
 const MARKER = (() => { const t = new Array(128).fill(0); [[5, 4], [4, 5], [3, 6], [4, 7], [5, 8]].forEach(([x, y]) => { t[y * 8 + x] = 1; t[y * 8 + x + 1] = 2; t[y * 8 + x + 2] = 2; }); [[2, 5], [1, 6], [2, 7]].forEach(([x, y]) => { t[y * 8 + x] = 1; t[y * 8 + x + 1] = 3; }); return t; })();
 kinds.marker = { name: 'marker', frames: 1, cols: 1, rows: 1, flags: 0, pals: [], palOf: [0], tiles: [MARKER], ownPals: 0 };
+// a lit brazier's flame: what brazier_on_0-2 add to brazier_off (the flame and the glowing coals), in the
+// top 16 rows of the 20-row sprite, so its bottom sits 4 px above the cell's bottom
+{
+  const off = spr('brazier_off'), tiles = [];
+  for (let f = 0; f < 3; f++) {
+    const on = spr('brazier_on_' + f), img = new Array(256).fill(null);
+    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const c = on.rows[y][x], o = off.rows[y][x]; if (c !== o && c !== '.' && PAL[c]) img[y * 16 + x] = c; }
+    tiles.push(cut(img, 16, 0, 0, 16), cut(img, 16, 1, 0, 16));
+  }
+  const reduced = tiles.map(t => G.reduceTile(t, 3)), pals = G.solvePalettes(reduced, 1, 3);
+  kinds.flame = { name: 'flame', frames: 3, cols: 2, rows: 1, flags: 0, pals, palOf: reduced.map(() => 0), tiles: reduced.map(t => G.bestPalette(t, pals, 1).idx), ownPals: 1 };
+}
 // floating numbers and words: four slots of three 8x16 pieces, drawn into VRAM at runtime (effects palette)
 kinds.float = { name: 'float', frames: 4, cols: 3, rows: 1, flags: 0, pals: [], palOf: new Array(12).fill(0), tiles: new Array(12).fill(null).map(() => new Array(128).fill(0)), ownPals: 0 };
 buildKind('fox'); buildKind('kit');
@@ -170,6 +332,7 @@ for (const k of IT) buildKind(iKind(k));
 for (const A of Object.values(AREAS)) for (const [i, ch] of [...A.map.join('')].entries()) {
   if (MONSTERS[ch]) { buildKind(mKind(ch)); if (MONSTERS[ch].summon) buildKind(mKind(MONSTERS[ch].summon)); if (MONSTERS[ch].splits) buildKind(mKind('s')); }
   else if (ch === '&') buildKind(npcKind(A.npcs[i]));
+  else if (ch === '@') buildKind(blockKind(A));
 }
 const KIND_NAMES = Object.keys(kinds);
 KIND_NAMES.forEach((k, n) => { kinds[k].id = n; });
@@ -198,12 +361,12 @@ const report = [];
 const MAX_ENEMIES = 16, MAX_ITEMS = 16;
 for (const key of AREA_KEYS) {
   const A = AREAS[key], flat = A.map.join(''), o = areaOut[key];
-  o.cells = composed[key].tiles.map(c => c.charCodeAt(0));
+  o.cells = cellInfo[key].tiles.map(c => c.charCodeAt(0));
   o.doors = Object.entries(A.doors).map(([i, d]) => {
     if (d.req && !REQ.includes(d.req)) problems.push(`${key}: door ${i} needs unknown ${d.req}`);
     return { cell: +i, to: AREA_KEYS.indexOf(d.to), spawn: d.spawn !== undefined ? d.spawn : spawnOf(AREAS[d.to]), req: Math.max(0, REQ.indexOf(d.req || null)), when: Math.max(0, WHEN.indexOf(d.when || null)), name: d.name || '' };
   });
-  o.enemies = []; o.npcs = []; o.items = [];
+  o.enemies = []; o.npcs = []; o.items = []; o.blocks = [];
   const used = ['fox', 'marker', 'float'];
   const use = k => { if (!used.includes(k)) used.push(k); return used.indexOf(k); };
   [...flat].forEach((ch, i) => {
@@ -215,7 +378,12 @@ for (const key of AREA_KEYS) {
       for (const d of m.drop || []) use(iKind(d));
     } else if (ITEMS[ch]) { use(iKind(ch)); o.items.push({ code: itemCode(ch), cell: i, relic: ch === 'a' ? relicIds[key + ':' + i] : 0 }); }
     else if (ch === '&') { const id = A.npcs[i]; o.npcs.push({ id: NPC_IDS.indexOf(id), kind: use(npcKind(id)), cell: i }); }
+    else if (ch === '@') o.blocks.push(i);
   });
+  o.blockAk = o.blocks.length ? use(blockKind(A)) : 0xFF;
+  o.flameAk = flat.includes('*') ? use('flame') : 0xFF;
+  if (o.blocks.length > 4) problems.push(`${key}: ${o.blocks.length} blocks (4 at most)`);
+  if ([...flat].filter(ch => ch === '*').length > 6) problems.push(`${key}: more than 6 braziers`);
   // fish drop from ordinary kills (not in areas with pressure plates: js/game.js killEnemy)
   if (o.enemies.some(e => !MONSTERS[MT[e.type]].boss) && !flat.includes('+')) use(iKind('f'));
   if (key === 'home') use('kit');   // rescued kits come home
@@ -248,10 +416,10 @@ for (const key of AREA_KEYS) {
   o.flags = (flat.includes('+') ? 1 : 0) | (A.slide ? 2 : 0) | (A.reform ? 4 : 0);
   // pressure: sprites on one row (plus Fang), sprites in all
   let rowObjs = 0, objs = kinds.fox.cols * kinds.fox.rows;
-  const things = o.enemies.map(e => ({ cell: e.cell, K: kinds[mKind(MT[e.type])] })).concat(o.npcs.map(n => ({ cell: n.cell, K: kinds[used[n.kind]] })), o.items.map(t => ({ cell: t.cell, K: kinds[iKind(IT[t.code - 1])] })));
+  const things = o.enemies.map(e => ({ cell: e.cell, K: kinds[mKind(MT[e.type])] })).concat(o.npcs.map(n => ({ cell: n.cell, K: kinds[used[n.kind]] })), o.items.map(t => ({ cell: t.cell, K: kinds[iKind(IT[t.code - 1])] })), o.blocks.map(c => ({ cell: c, K: kinds[blockKind(A)] })), [...flat].map((ch, i) => (ch === '*' ? { cell: i, K: kinds.flame } : null)).filter(Boolean));
   for (let y = 0; y < ROWS; y++) { let n = 0; for (const t of things) if (((t.cell / COLS) | 0) === y) n += t.K.cols; rowObjs = Math.max(rowObjs, n); }
   for (const t of things) objs += t.K.cols * t.K.rows;
-  report.push({ key, biome: A.biome, rowObjs, objs, pals: slot, objTiles: o.objTiles, biomeTiles: biomeOut[A.biome].tiles.length, err: (100 * biomeOut[A.biome].errPx / biomeOut[A.biome].px).toFixed(1) });
+  report.push({ key, biome: A.biome, rowObjs, objs, pals: slot, objTiles: o.objTiles, biomeTiles: biomeOut[A.biome].order.length, metas: o.meta.length / 8, err: (100 * biomeOut[A.biome].errPx / biomeOut[A.biome].px).toFixed(1) });
 }
 
 // ---------- the HUD: icons, bar pieces, the font, and the area overview (SELECT) ----------
@@ -299,19 +467,23 @@ const sfxNotes = SFX_NAMES.map(n => {
 
 // ---------- C output ----------
 fs.mkdirSync(OUT, { recursive: true });
-for (const f of fs.readdirSync(OUT)) if (/\.(c|h|inc)$/.test(f)) fs.unlinkSync(path.join(OUT, f));
+const written = new Set();   // only files whose content changed are rewritten, so make recompiles just those
+const emit = (f, text) => { written.add(f); const file = path.join(OUT, f); if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== text) fs.writeFileSync(file, text); };
 const hex = (arr, per = 16) => arr.map(v => '0x' + v.toString(16).padStart(2, '0')).reduce((lines, v, i) => { if (i % per === 0) lines.push([]); lines[lines.length - 1].push(v); return lines; }, []).map(l => '  ' + l.join(', ')).join(',\n');
 const hex16 = arr => '  ' + arr.map(v => '0x' + v.toString(16).padStart(4, '0')).join(', ');
 const cstr = s => '"' + s.toUpperCase().replace(/[\\"]/g, '\\$&') + '"';
 const HEAD = '// Generated by gbc/tools/build.js from the web game. Do not edit.\n';
-const write = (f, s) => fs.writeFileSync(path.join(OUT, f), HEAD + s);
+const write = (f, s) => emit(f, HEAD + s);
 const defs = (prefix, names) => names.map((n, i) => `#define ${prefix}${n.replace(/[^a-z0-9]/gi, '_').toUpperCase()} ${i}\n`).join('');
 
 for (const [b, o] of Object.entries(biomeOut)) {
   const pal = []; for (let p = 0; p < TERRAIN_PALS; p++) for (let c = 0; c < 4; c++) pal.push(o.pals[p] && o.pals[p][c] ? G.to555(o.pals[p][c]) : 0);
+  // animated runs: all three frames of the run's tiles, one frame after the other
+  let off = 0; const anim = [], segs = o.segments.map(sg => { const at = off; for (let f = 0; f < 3; f++) for (const u of sg.tiles) anim.push(...G.enc2bpp(u.idx[f])); off += sg.tiles.length * 48; return `{ ${sg.anim}, ${sg.tiles.length}, ${sg.first}, ${at} }`; });
   write(`biome_${b}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(biome_${b})\n` +
-    `static const uint8_t tiles[] = {\n${hex(o.tiles.flatMap(G.enc2bpp))}\n};\nstatic const palette_color_t pal[] = {\n${hex16(pal)}\n};\n` +
-    `const biome_t biome_${b} = { ${o.tiles.length}, tiles, pal };\n`);
+    `static const uint8_t tiles[] = {\n${hex(o.order.flatMap(u => G.enc2bpp(u.idx[0])))}\n};\nstatic const palette_color_t pal[] = {\n${hex16(pal)}\n};\n` +
+    `static const anim_seg_t segs[] = { ${segs.join(', ') || '{ 0 }'} };\nstatic const uint8_t anim[] = {\n${hex(anim.length ? anim : [0])}\n};\n` +
+    `const biome_t biome_${b} = { ${o.order.length}, tiles, pal, ${segs.length}, segs, anim };\n`);
 }
 for (const K of Object.values(kinds)) {
   write(`kind_${K.name}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(kind_${K.name})\n` +
@@ -322,8 +494,9 @@ AREA_KEYS.forEach(k => {
   const o = areaOut[k], A = AREAS[k], c = cName(k);
   const list = (name, type, rows, fmt) => `static const ${type} ${name}[] = {\n${rows.map(fmt).join(',\n') || '  { 0 }'}\n};\n`;
   write(`area_${c}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(area_${c})\n` +
-    `static const uint8_t map[] = {\n${hex(o.map, 28)}\n};\nstatic const uint8_t attr[] = {\n${hex(o.attr, 28)}\n};\n` +
     `static const uint8_t cells[] = {\n${hex(o.cells, 14)}\n};\n` +
+    `static const cell_rec_t cell_recs[] = {\n${o.cellRecs.map(r => '  { ' + r + ' }').join(',\n')}\n};\n` +
+    `static const uint8_t metas[] = {\n${hex(o.meta, 8)}\n};\nstatic const uint8_t dyn[] = { ${o.dyn.join(', ') || 0} };\nstatic const uint8_t cond[] = { ${o.cond.join(', ') || 0} };\nstatic const uint8_t blocks[] = { ${o.blocks.join(', ') || 0} };\n` +
     list('doors', 'door_t', o.doors, d => `  { ${d.cell}, ${d.to}, ${d.spawn}, ${d.req}, ${d.when}, ${cstr(d.name)} }`) +
     list('enemies', 'thing_t', o.enemies, e => `  { ${e.type}, ${e.cell}, 0 }`) +
     list('npcs', 'thing_t', o.npcs, n => `  { ${n.id}, ${n.cell}, ${n.kind} }`) +
@@ -331,14 +504,20 @@ AREA_KEYS.forEach(k => {
     list('kinds', 'area_kind_t', o.kinds, a => `  { ${a.kind}, ${a.bank}, ${a.tile}, ${a.pal} }`) +
     `static const uint8_t type_ak[] = { ${o.typeAk.join(', ')} };\nstatic const uint8_t item_ak[] = { ${o.itemAk.join(', ')} };\n` +
     `static const palette_color_t obj_pal[] = {\n${hex16(o.objPal)}\n};\n` +
-    `const area_t area_${c} = { ${BIOME_KEYS.indexOf(A.biome)}, ${TRACK_KEYS.indexOf(A.music)}, ${spawnOf(A)}, ${o.flags}, ${A.brazierTime || 0}, ${A.reform || 0}, ${(A.crumbleTo || '~').charCodeAt(0)}, map, attr, cells,\n` +
-    `  ${o.doors.length}, doors, ${o.enemies.length}, enemies, ${o.npcs.length}, npcs, ${o.items.length}, items, ${o.kinds.length}, kinds, type_ak, item_ak, obj_pal, ${cstr(A.title)} };\n`);
+    `const area_t area_${c} = { ${BIOME_KEYS.indexOf(A.biome)}, ${TRACK_KEYS.indexOf(A.music)}, ${spawnOf(A)}, ${o.flags}, ${A.brazierTime || 0}, ${A.reform || 0}, ${(A.crumbleTo || '~').charCodeAt(0)}, cells, cell_recs, metas,\n` +
+    `  ${o.dyn.length}, dyn, ${o.cond.length}, cond, ${o.blocks.length}, blocks, ${o.blockAk}, ${o.flameAk}, ${o.doors.length}, doors, ${o.enemies.length}, enemies, ${o.npcs.length}, npcs, ${o.items.length}, items, ${o.kinds.length}, kinds, type_ak, item_ak, obj_pal, ${cstr(A.title)} };\n`);
 });
 const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js') && f !== 'sfx.js').map(f => f.slice(0, -3));
-for (const s of songs) fs.writeFileSync(path.join(OUT, `song_${s}.c`), SONG.compile(s, require(path.join(GBC, 'music', s + '.js'))));
+for (const s of songs) emit(`song_${s}.c`, SONG.compile(s, require(path.join(GBC, 'music', s + '.js'))));
 const chFlags = new Array(128).fill(0);
 for (let c = 32; c < 128; c++) { const ch = String.fromCharCode(c), T = TERRAIN[ch]; if (ch === '#' || ch === '~' || (T && T.solid)) chFlags[c] |= 1; if (ch === '~') chFlags[c] |= 2; if (ch === 'd' || ch === 'D') chFlags[c] |= 4; if (ch === 'w') chFlags[c] |= 8; }
 const usedBiomes = BIOME_KEYS.filter(b => biomeOut[b]);
+// cells.c's fast path: the look of a tile that always looks the same (0xFF: it depends on the game's
+// state), and the looks whose picture reaches into the cell above (a change there redraws that cell too)
+const CONDITIONAL = '+vodD';
+const lookOf = new Array(128).fill(L.FLOOR);
+for (let c = 33; c < 128; c++) { const ch = String.fromCharCode(c); lookOf[c] = CONDITIONAL.includes(ch) ? 0xFF : charLooks({ doors: {} }, ch, 0)[0]; }
+const lookTall = LOOKS.map((_, l) => (l === L.DOOR || l === L.CAMO || [0, 1, 2].some(f => { const a = lookArt({ doors: {}, biome: 'woods' }, 0, l, f); return a.tall && spr(a.tall).h > 16; }) || l === L.TREE ? 1 : 0));
 // the game's own tables, compiled into logic.c (#include) so they share its ROM bank
 write('tables.inc', `// monsters by type, items by code (1-based), perk names\n` +
   `static const monster_t monsters[TYPE_COUNT] = {\n${MT.map(ch => { const m = MONSTERS[ch]; const drop = (m.drop || []).map(itemCode);
@@ -356,16 +535,20 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `#define UI_TILES ${UI_TILES.length}\n#define OVERVIEW_TILES ${OVERVIEW_TILES.length}\n#define KIND_FOX ${kinds.fox.id}\n` +
   Object.entries(KF).map(([k, v]) => `#define KF_${k} ${v}\n`).join('') + Object.entries(MF).map(([k, v]) => `#define MF_${k} ${v}u\n`).join('') +
   `#define CF_SOLID 1\n#define CF_VOID 2\n#define CF_DOOR 4\n#define CF_WATER 8\n#define AF_PLATES 1\n#define AF_SLIDE 2\n#define AF_REFORM 4\n` +
+  defs('LK_', LOOKS) + `#define MAX_CELL_LOOKS ${MAX_CELL_LOOKS}\n#define ANIMATORS ${ANIM_NAMES.length}\nstatic const uint8_t anim_frames[ANIMATORS] = { ${ANIM_FRAMES.join(', ')} };   // frames per animation step\n` +
   REQ.slice(1).map((r, i) => `#define REQ_${r.toUpperCase()} ${i + 1}\n`).join('') + WHEN.slice(1).map((r, i) => `#define WHEN_${r.toUpperCase()} ${i + 1}\n`).join('') +
   `static const uint8_t when_flag[] = { 0xFF, ${WHEN.slice(1).map(w => FLAGS.indexOf(w)).join(', ')} };\n` +
   defs('F_', FLAGS) + defs('P_', PERK_KEYS) + defs('SFX_', SFX_NAMES) + defs('NPC_', NPC_IDS) +
   IT.map((k, i) => `#define IT_${ITEMS[k].spr.toUpperCase()} ${i + 1}\n`).join('') + MT.map((ch, i) => `#define MT_${MONSTERS[ch].spr.toUpperCase()} ${i}\n`).join('') +
-  `\ntypedef struct { uint16_t tiles_n; const uint8_t *tiles; const palette_color_t *pal; } biome_t;   // pal: ${TERRAIN_PALS} palettes x 4\n` +
+  `\ntypedef struct { uint8_t anim, count; uint16_t first, offset; } anim_seg_t;   // a run of animated tiles: its 3 frames at anim + offset\n` +
+  `typedef struct { uint16_t tiles_n; const uint8_t *tiles; const palette_color_t *pal; uint8_t seg_n; const anim_seg_t *segs; const uint8_t *anim; } biome_t;   // pal: ${TERRAIN_PALS} palettes x 4\n` +
+  `typedef struct { uint16_t meta; uint8_t n, look[MAX_CELL_LOOKS]; } cell_rec_t;   // a cell's looks; metatile meta + look * (looks below) + look below\n` +
   `typedef struct { uint8_t cols, rows, frames, flags, tiles_n; const uint8_t *tiles; const uint8_t *pal_of; } kind_t;   // pal_of: palette (0/1) of each 8x16 piece\n` +
   `typedef struct { uint8_t cell, to, spawn, req, when; const char *name; } door_t;\n` +
   `typedef struct { uint8_t what, cell, extra; } thing_t;              // enemy: type; npc: id, area kind; item: code, relic id\n` +
   `typedef struct { uint8_t kind, bank, tile, pal; } area_kind_t;    // where this kind's sprite tiles and palettes go\n` +
-  `typedef struct { uint8_t biome, music, spawn, flags, brazier_time, reform, crumble_to; const uint8_t *map, *attr, *cells;\n` +
+  `typedef struct { uint8_t biome, music, spawn, flags, brazier_time, reform, crumble_to; const uint8_t *cells; const cell_rec_t *cell_recs; const uint8_t *metas;\n` +
+  `                 uint8_t dyn_n; const uint8_t *dyn; uint8_t cond_n; const uint8_t *cond; uint8_t block_n; const uint8_t *blocks; uint8_t block_ak, flame_ak;   // metas: 4 tiles then 4 attributes each; dyn: cells with more than one look; cond: the ones that change without their tile changing\n` +
   `                 uint8_t door_n; const door_t *doors; uint8_t enemy_n; const thing_t *enemies; uint8_t npc_n; const thing_t *npcs; uint8_t item_n; const thing_t *items;\n` +
   `                 uint8_t kind_n; const area_kind_t *kinds; const uint8_t *type_ak, *item_ak; const palette_color_t *obj_pal; const char *title; } area_t;\n` +
   `typedef struct { uint16_t hp, xp, flags; uint8_t atk, interval, steps, poison, healer, summon, spawn_every, trail, phases, boss_flag, drop[2]; const char *name; } monster_t;\n` +
@@ -374,12 +557,14 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `typedef struct { uint8_t n, length; const sfx_note_t *notes; } sfx_t;\n\n` +
   `// each returns the ROM bank that holds *out and everything it points to\nuint8_t area_ref(uint8_t a, const area_t **out);\nuint8_t biome_ref(uint8_t b, const biome_t **out);\nuint8_t kind_ref(uint8_t k, const kind_t **out);\n\n` +
   `extern const sfx_t sfx_table[SFX_COUNT];\n` +
+  `extern const uint8_t look_of[128], look_tall[${LOOKS.length}];   // a tile's look when it never changes (0xFF: it does); looks that reach into the cell above\n` +
   `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\nextern const uint8_t ui_tiles[UI_TILES * 16], overview_tiles[OVERVIEW_TILES * 16];\nextern const palette_color_t ui_pal[12];   // BG palettes 5 (overview), 6 (icons) and 7 (text)\nextern const uint8_t font[64 * 6];        // ' ' to '_': width, then 5 rows\n\n#endif\n`);
 write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
   usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
   KIND_NAMES.map(k => `BANKREF_EXTERN(kind_${k})\nextern const kind_t kind_${k};`).join('\n') + '\n\n' +
   `const uint8_t ch_flags[128] = {\n${hex(chFlags)}\n};\n` +
+  `const uint8_t look_of[128] = {\n${hex(lookOf)}\n};\nconst uint8_t look_tall[${LOOKS.length}] = { ${lookTall.join(', ')} };\n` +
   `const uint8_t cell_col[CELLS] = {\n${hex([...Array(COLS * ROWS).keys()].map(i => i % COLS), 14)}\n};\n` +
   `const uint8_t cell_row[CELLS] = {\n${hex([...Array(COLS * ROWS).keys()].map(i => (i / COLS) | 0), 14)}\n};\n` +
   `const uint8_t ui_tiles[] = {\n${hex(UI_TILES.flatMap(G.enc2bpp))}\n};\n` +
@@ -389,6 +574,8 @@ write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   `uint8_t area_ref(uint8_t a, const area_t **out) {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
   `uint8_t biome_ref(uint8_t b, const biome_t **out) {\n  switch (b) {\n${usedBiomes.map(b => `    case ${BIOME_KEYS.indexOf(b)}: *out = &biome_${b}; return BANK(biome_${b});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
   `uint8_t kind_ref(uint8_t k, const kind_t **out) {\n  switch (k) {\n${KIND_NAMES.map((k, i) => `    case ${i}: *out = &kind_${k}; return BANK(kind_${k});`).join('\n')}\n  }\n  return 0;\n}\n`);
+
+for (const f of fs.readdirSync(OUT)) if (/\.(c|h|inc)$/.test(f) && !written.has(f)) fs.unlinkSync(path.join(OUT, f));   // gone from the game
 
 // ---------- preview: every area's background as the ROM should draw it ----------
 fs.mkdirSync(PREVIEW, { recursive: true });
@@ -402,9 +589,9 @@ G.png(path.join(PREVIEW, 'areas.png'), SHEET_COLS * (CW + 4), Math.ceil(AREA_KEY
 {
   const list = Object.values(kinds).filter(K => K.name !== 'float'), cellW = 36, cellH = 36, per = 8;
   const rgbOf = (K, piece, v) => { if (!v) return [40, 44, 70]; const cols = K.name === 'marker' ? EFFECTS_PAL : K.pals[K.palOf[piece]]; return G.from555(G.to555(cols[v - 1])); };
-  G.png(path.join(PREVIEW, 'sprites.png'), per * cellW * 2, Math.ceil(list.length / per) * cellH, (x, y) => {
-    const n = Math.floor(y / cellH) * per + Math.floor(x / (cellW * 2)), K = list[n]; if (!K) return [16, 16, 24];
-    const f = Math.floor((x % (cellW * 2)) / cellW), lx = x % cellW - 2, ly = y % cellH - 2;
+  G.png(path.join(PREVIEW, 'sprites.png'), per * cellW * 3, Math.ceil(list.length / per) * cellH, (x, y) => {   // up to 3 frames each
+    const n = Math.floor(y / cellH) * per + Math.floor(x / (cellW * 3)), K = list[n]; if (!K) return [16, 16, 24];
+    const f = Math.floor((x % (cellW * 3)) / cellW), lx = x % cellW - 2, ly = y % cellH - 2;
     if (f >= K.frames || lx < 0 || ly < 0 || lx >= K.cols * 8 || ly >= K.rows * 16) return [16, 16, 24];
     const piece = (f * K.rows + (ly >> 4)) * K.cols + (lx >> 3);
     return rgbOf(K, piece, K.tiles[piece][(ly & 15) * 8 + (lx & 7)]);
@@ -414,12 +601,13 @@ G.png(path.join(PREVIEW, 'areas.png'), SHEET_COLS * (CW + 4), Math.ceil(AREA_KEY
 // ---------- report ----------
 const pad = (s, n) => String(s).padEnd(n);
 if (REPORT || problems.length) {
-  console.log(pad('area', 18) + pad('row sprites', 13) + pad('sprites', 9) + pad('sprite pals', 13) + pad('sprite tiles', 14) + pad('bg tiles', 10) + 'recoloured');
-  for (const r of report) console.log(pad(r.key, 18) + pad(r.rowObjs + 2 + (r.rowObjs + 2 > 10 ? ' !' : ''), 13) + pad(r.objs, 9) + pad(r.pals + '/8', 13) + pad(r.objTiles + '/256', 14) + pad(r.biomeTiles + '/256', 10) + r.err + '%');
+  console.log(pad('area', 18) + pad('row sprites', 13) + pad('sprites', 9) + pad('sprite pals', 13) + pad('sprite tiles', 14) + pad('bg tiles', 10) + pad('metatiles', 11) + 'recoloured');
+  for (const r of report) console.log(pad(r.key, 18) + pad(r.rowObjs + 2 + (r.rowObjs + 2 > 10 ? ' !' : ''), 13) + pad(r.objs, 9) + pad(r.pals + '/8', 13) + pad(r.objTiles + '/256', 14) + pad(r.biomeTiles + '/' + MAX_BG_TILES, 10) + pad(r.metas, 11) + r.err + '%');
+  for (const [b, o] of Object.entries(biomeOut)) if (o.segments.length) console.log(`${b}: animated ${o.segments.map(sg => `${ANIM_NAMES[sg.anim]} ${sg.tiles.length}`).join(', ')}`);
   console.log(`item palettes: ${ITEM_PALS.map((p, i) => `${i}${i === EFFECTS_ITEM_PAL ? ' (effects)' : ''}: ${IT.filter(k => itemPalOf[k] === i).join('')}`).join(' | ')}`);
 }
-const worst = Object.entries(biomeOut).sort((a, b) => b[1].tiles.length - a[1].tiles.length)[0];
-console.log(`${AREA_KEYS.length} areas, ${Object.keys(biomeOut).length} tilesets (largest ${worst[0]} ${worst[1].tiles.length}/${MAX_STATIC_TILES}), ${KIND_NAMES.length} sprite kinds, ${MT.length} monsters, ${IT.length} items, ${relicCount} relics, ${SFX_NAMES.length} sound effects, ${songs.length} song(s); previews in ${path.relative(ROOT, PREVIEW)}`);
+const worst = Object.entries(biomeOut).sort((a, b) => b[1].order.length - a[1].order.length)[0];
+console.log(`${AREA_KEYS.length} areas, ${Object.keys(biomeOut).length} tilesets (largest ${worst[0]} ${worst[1].order.length}/${MAX_BG_TILES}), ${KIND_NAMES.length} sprite kinds, ${MT.length} monsters, ${IT.length} items, ${relicCount} relics, ${SFX_NAMES.length} sound effects, ${songs.length} song(s); previews in ${path.relative(ROOT, PREVIEW)}`);
 try { execFileSync('node', [path.join(ROOT, 'tools', 'validate.js'), '--gbc'], { stdio: 'pipe' }); }
 catch (e) { problems.push('tools/validate.js --gbc failed:\n' + String(e.stdout || e.message).trim()); }
 if (problems.length) { console.error('\n' + problems.join('\n')); process.exit(1); }

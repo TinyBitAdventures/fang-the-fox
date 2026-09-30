@@ -10,6 +10,7 @@ typedef struct {
   uint16_t en_hit_t[MAX_ENEMIES];
   uint8_t item_code[MAX_ITEMS], item_cell[MAX_ITEMS], item_relic[MAX_ITEMS];
   uint8_t temp_cell[MAX_TEMP], temp_orig[MAX_TEMP], temp_t[MAX_TEMP];
+  uint8_t blk_x[MAX_BLOCKS], blk_y[MAX_BLOCKS], lit_t[MAX_BRAZIERS];
 } area_state_t;
 #define PER_BANK (8192 / sizeof(area_state_t))
 #define SRAM_AREA_BANK 2

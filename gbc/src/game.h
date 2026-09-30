@@ -59,6 +59,12 @@ extern uint8_t item_n, item_code[MAX_ITEMS], item_cell[MAX_ITEMS], item_relic[MA
 extern uint8_t temp_n, temp_cell[MAX_TEMP], temp_orig[MAX_TEMP], temp_t[MAX_TEMP];
 // friends: who, where, their sprite kind
 extern uint8_t npc_n, npc_id[MAX_NPCS], npc_x[MAX_NPCS], npc_y[MAX_NPCS], npc_ak[MAX_NPCS];
+// puzzles: blocks to push (x NONE: sunk), braziers and how long they burn (the web's S.blocks, S.lit)
+#define MAX_BLOCKS 4
+#define MAX_BRAZIERS 6
+#define LIT_FOREVER 0xFF
+extern uint8_t blk_n, blk_x[MAX_BLOCKS], blk_y[MAX_BLOCKS], blk_o[MAX_BLOCKS], area_block_ak;   // blk_o: the cell it starts on
+extern uint8_t brz_n, brz_cell[MAX_BRAZIERS], brz_phase[MAX_BRAZIERS], lit_t[MAX_BRAZIERS], area_flame_ak;   // lit_t: 0 cold, turns left, or LIT_FOREVER
 void area_enter(uint8_t a) BANKED;   // loads the area: from SRAM when visited before, else fresh from ROM
 void area_leave(void) BANKED;        // writes the current area's state to SRAM
 void area_reset_world(void) BANKED;  // a new game: every area fresh
@@ -66,10 +72,23 @@ void area_recover_world(void) BANKED;   // after a fall: regular foes in every o
 extern uint8_t area_is_fresh;        // set by area_enter when the area came fresh from ROM: entered_area fills in the foes
 #include "sram.h"
 
+// ---------- the changing world on screen (cells.c) ----------
+#define MAX_SEGS 8
+extern uint8_t look_now[CELLS], dyn_n, dyn_cell[CELLS], cond_n, cond_cell[16], fog_clear;   // fog_clear: Keen Eyes or True Sight
+#define CHG_MAX 16
+extern uint8_t chg_n, chg_cell[CHG_MAX];   // cells whose tile the rules changed this action (rules.h set_tile); more than CHG_MAX: look at all
+extern uint8_t flame_f, flick;     // the flames' frame (0-2), and 1 while a brazier near its end shows cold
+extern uint8_t area_bank, anim_seg_n, anim_bank;                      // where the area's cells and the biome's animation live
+extern const cell_rec_t *area_recs;
+extern const uint8_t *area_metas, *anim_data;
+extern anim_seg_t anim_segs[MAX_SEGS];
+void cells_draw_all(void) BANKED;  // every cell, entering an area
+void cells_refresh(void) BANKED;   // the cells whose look changed, after the rules ran
+void cells_frame(void) BANKED;     // tile animation, flames and their flicker, every frame
+
 // ---------- other ROM banks, from banked code (far.c, bank 0) ----------
 void far_copy(void *dst, uint8_t bank, const void *src, uint16_t n);
 void far_vram(uint8_t *vram, uint8_t vbk, uint8_t bank, const uint8_t *src, uint16_t n);
-void far_bkg(uint8_t bank, const uint8_t *map, const uint8_t *attr);
 
 // ---------- palettes: the area's colours, faded on the way to the screen (area.c) ----------
 extern palette_color_t bg_pal[32], obj_pal[32];
@@ -82,6 +101,8 @@ enum { A_NONE, A_HOP, A_BUMP, A_LUNGE, A_MOVE, A_REST };   // A_REST: no motion,
 extern uint8_t cam_x, scroll_y, dbg_cam;   // written to SCX/SCY in VBlank; dbg_cam: 0 follows Fang, n pins the camera at n - 1 (tests)
 extern uint16_t frame_count;
 extern uint8_t en_anim[MAX_ENEMIES], en_anim_t[MAX_ENEMIES], en_from[MAX_ENEMIES], en_flash[MAX_ENEMIES];
+extern uint8_t blk_anim_t[MAX_BLOCKS], blk_from[MAX_BLOCKS];
+void block_anim(uint8_t b, uint8_t from_cell);
 void fox_anim(uint8_t type, uint8_t from_x, uint8_t from_y, uint8_t frames);   // from: the cell (hop) or the direction + 1 (lunge)
 void enemy_anim(uint8_t e, uint8_t type, uint8_t from_cell);
 void float_num(uint8_t x, uint8_t y, const char *text);   // copies the text (it may live in the caller's bank)
@@ -110,6 +131,9 @@ void eat_fish(void) BANKED;
 void fire_spin(void) BANKED;
 void respawn(void) BANKED;
 void entered_area(void) BANKED;     // the web's enterArea after the area is loaded (fresh foes, reset puzzles, re-form paths)
+void light_brazier(uint8_t i, uint8_t x, uint8_t y) BANKED;   // puzzle.c: lightBrazier, pushBlock, checkPuzzle
+void push_block(uint8_t b, int8_t dx, int8_t dy) BANKED;
+void check_puzzle(void) BANKED;
 
 // ---------- randomness: xorshift32, the same sequence as tools/parity.js ----------
 extern uint32_t rng_state;

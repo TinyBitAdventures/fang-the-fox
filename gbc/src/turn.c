@@ -89,7 +89,8 @@ void end_turn(void) BANKED {
     if (temp_orig[i] == 'u') hud_say("The path knits itself back together.");
     temp_n--; temp_cell[i] = temp_cell[temp_n]; temp_orig[i] = temp_orig[temp_n]; temp_t[i] = temp_t[temp_n];
   }
-  // timed braziers gutter out in phase 3
+  // timed braziers gutter out
+  if (!area_solved) for (i = 0; i < brz_n; i++) if (lit_t[i] && lit_t[i] != LIT_FOREVER && !--lit_t[i]) { hud_say("A brazier gutters out!"); sfx_play(SFX_LOCKED); }
   if (turn % 3 == 0) for (i = 0; i < CELLS; i++) if (tiles[i] == 'v') {
     uint8_t x = i % COLS, y = i / COLS;
     if (adist(x, fox.x) + adist(y, fox.y) <= 1) hurt_fox(HAS_PERK(P_HEATRESIST) ? 4 : 8, &dealt);

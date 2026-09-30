@@ -27,6 +27,8 @@ uint16_t en_hit_t[MAX_ENEMIES];
 uint8_t item_n, item_code[MAX_ITEMS], item_cell[MAX_ITEMS], item_relic[MAX_ITEMS];
 uint8_t temp_n, temp_cell[MAX_TEMP], temp_orig[MAX_TEMP], temp_t[MAX_TEMP];
 uint8_t npc_n, npc_id[MAX_NPCS], npc_x[MAX_NPCS], npc_y[MAX_NPCS], npc_ak[MAX_NPCS];
+uint8_t blk_n, blk_x[MAX_BLOCKS], blk_y[MAX_BLOCKS], blk_o[MAX_BLOCKS], area_block_ak;
+uint8_t brz_n, brz_cell[MAX_BRAZIERS], brz_phase[MAX_BRAZIERS], lit_t[MAX_BRAZIERS], area_flame_ak;
 
 static area_t A;         // the area's ROM record, and a few of its lists, copied out of their bank
 static biome_t B;
@@ -34,15 +36,20 @@ static kind_t K;
 static door_t D[MAX_DOORS];
 static thing_t T[MAX_ENEMIES];
 
-// biome tiles go to the 0x9000 block: tiles 0-127 in VRAM bank 0, 128-255 in bank 1
+// biome tiles go to the 0x9000 block: tiles 0-127 in VRAM bank 0, 128-255 in bank 1 (then 0x8800 in bank 1);
+// the animated ones come first, and cells.c steps them through their frames
 static void load_biome(uint8_t b) {
   const biome_t *bi;
   uint8_t bank = biome_ref(b, &bi);
   far_copy(&B, bank, bi, sizeof(B));
   uint16_t n = B.tiles_n;
   far_vram((uint8_t *)0x9000, 0, bank, B.tiles, (n > 128 ? 128 : n) << 4);
-  if (n > 128) far_vram((uint8_t *)0x9000, 1, bank, B.tiles + 2048, (n - 128) << 4);
+  if (n > 128) far_vram((uint8_t *)0x9000, 1, bank, B.tiles + 2048, (n > 256 ? 128 : n - 128) << 4);
+  if (n > 256) far_vram((uint8_t *)0x8800, 1, bank, B.tiles + 4096, (n - 256) << 4);
   far_copy(bg_pal, bank, B.pal, 20 * sizeof(palette_color_t));
+  anim_seg_n = B.seg_n > MAX_SEGS ? MAX_SEGS : B.seg_n;
+  far_copy(anim_segs, bank, B.segs, anim_seg_n * sizeof(anim_seg_t));
+  anim_bank = bank; anim_data = B.anim;
   cur_biome = b;
 }
 
@@ -84,6 +91,7 @@ static void load_state(uint8_t a) {
   memcpy(en_hp, r->en_hp, sizeof(en_hp)); memcpy(en_hit_t, r->en_hit_t, sizeof(en_hit_t));
   memcpy(item_code, r->item_code, MAX_ITEMS); memcpy(item_cell, r->item_cell, MAX_ITEMS); memcpy(item_relic, r->item_relic, MAX_ITEMS);
   memcpy(temp_cell, r->temp_cell, MAX_TEMP); memcpy(temp_orig, r->temp_orig, MAX_TEMP); memcpy(temp_t, r->temp_t, MAX_TEMP);
+  memcpy(blk_x, r->blk_x, MAX_BLOCKS); memcpy(blk_y, r->blk_y, MAX_BLOCKS); memcpy(lit_t, r->lit_t, MAX_BRAZIERS);
   DISABLE_RAM;
 }
 
@@ -100,6 +108,7 @@ void area_leave(void) BANKED {
   memcpy(r->en_hp, en_hp, sizeof(en_hp)); memcpy(r->en_hit_t, en_hit_t, sizeof(en_hit_t));
   memcpy(r->item_code, item_code, MAX_ITEMS); memcpy(r->item_cell, item_cell, MAX_ITEMS); memcpy(r->item_relic, item_relic, MAX_ITEMS);
   memcpy(r->temp_cell, temp_cell, MAX_TEMP); memcpy(r->temp_orig, temp_orig, MAX_TEMP); memcpy(r->temp_t, temp_t, MAX_TEMP);
+  memcpy(r->blk_x, blk_x, MAX_BLOCKS); memcpy(r->blk_y, blk_y, MAX_BLOCKS); memcpy(r->lit_t, lit_t, MAX_BRAZIERS);
   DISABLE_RAM;
   visited[a >> 3] |= 1 << (a & 7);
 }
@@ -113,6 +122,14 @@ void area_enter(uint8_t a) BANKED {
   far_copy(&A, bank, ap, sizeof(A));
   area_spawn = A.spawn; area_flags = A.flags; area_brazier_time = A.brazier_time; area_reform = A.reform; area_crumble_to = A.crumble_to;
   far_copy(orig, bank, A.cells, CELLS);
+  area_bank = bank; area_recs = A.cell_recs; area_metas = A.metas;
+  dyn_n = A.dyn_n; far_copy(dyn_cell, bank, A.dyn, dyn_n);
+  cond_n = A.cond_n > 16 ? 16 : A.cond_n; far_copy(cond_cell, bank, A.cond, cond_n);
+  blk_n = A.block_n > MAX_BLOCKS ? MAX_BLOCKS : A.block_n; area_block_ak = A.block_ak;
+  far_copy(blk_o, bank, A.blocks, blk_n);
+  brz_n = 0;
+  for (i = 0; i < CELLS; i++) if (orig[i] == '*' && brz_n < MAX_BRAZIERS) { brz_phase[brz_n] = i % 3; brz_cell[brz_n++] = i; }   // braziers never move: the web's S.lit keys, in order
+  area_flame_ak = A.flame_ak;
   door_n = A.door_n > MAX_DOORS ? MAX_DOORS : A.door_n;
   far_copy(D, bank, A.doors, door_n * sizeof(door_t));
   for (i = 0; i < door_n; i++) {
@@ -131,6 +148,8 @@ void area_enter(uint8_t a) BANKED {
   else {   // js makeArea: the ROM's lists (entered_area gives the foes their health), relics already found stay found
     memcpy(tiles, orig, CELLS);
     area_solved = area_boss_down = 0; area_entry = A.spawn; temp_n = 0;
+    for (i = 0; i < blk_n; i++) { blk_x[i] = blk_o[i] % COLS; blk_y[i] = blk_o[i] / COLS; }
+    memset(lit_t, 0, sizeof(lit_t));
     en_n = A.enemy_n > MAX_ENEMIES ? MAX_ENEMIES : A.enemy_n;
     far_copy(T, bank, A.enemies, en_n * sizeof(thing_t));
     for (i = 0; i < en_n; i++) { en_type[i] = T[i].what; en_x[i] = T[i].cell % COLS; en_y[i] = T[i].cell / COLS; }
@@ -149,10 +168,10 @@ void area_enter(uint8_t a) BANKED {
   far_copy(item_ak + 1, bank, A.item_ak, ITEM_COUNT); item_ak[0] = NONE;
   far_copy(obj_pal, bank, A.obj_pal, sizeof(obj_pal));
   far_copy(area_title, bank, A.title, NAME_LEN - 1); area_title[NAME_LEN - 1] = 0;
-  far_bkg(bank, A.map, A.attr);
-  if (A.biome != cur_biome) load_biome(A.biome);
+  if (A.biome != cur_biome) load_biome(A.biome);   // the cells are drawn once entered_area has set them up (cells_draw_all)
   ms_used = 0;
   for (i = 0; i < kind_n; i++) load_kind(i);
   for (i = 0; i < MAX_ENEMIES; i++) { en_anim[i] = A_NONE; en_flash[i] = 0; }
+  for (i = 0; i < MAX_BLOCKS; i++) blk_anim_t[i] = 0xFF;
   pal_dirty = 1;
 }

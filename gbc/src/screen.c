@@ -37,6 +37,9 @@ void overview_fill(void) BANKED {   // rows 16-31 empty (also what a screen shak
   memset(row, 5, 32);
   VBK_REG = VBK_ATTRIBUTES; for (uint8_t y = 16; y < 32; y++) set_bkg_tiles(0, y, 32, 1, row); VBK_REG = VBK_TILES;
 }
+static uint8_t fogged(uint8_t x, uint8_t y) {   // js hiddenAt: fog hides what's more than a step from Fang
+  return !fog_clear && tiles[y * COLS + x] == 'o' && (x > fox.x ? x - fox.x : fox.x - x) + (y > fox.y ? y - fox.y : fox.y - y) > 1;
+}
 void overview_draw(void) BANKED {
   static uint8_t row[COLS], attr[COLS];
   uint8_t x, y, i;
@@ -44,12 +47,13 @@ void overview_draw(void) BANKED {
     for (x = 0; x < COLS; x++) {
       uint8_t ch = tiles[y * COLS + x], t = 1;
       if (ch == '~') t = 0; else if (ch == 'w') t = 3; else if (ch == 'l') t = 4; else if (ch == 'd' || ch == 'D') t = 5;
-      else if ((ch_flags[ch] & CF_SOLID) || ch == '@') t = 2;
+      else if ((ch_flags[ch] & CF_SOLID) || look_now[y * COLS + x] == LK_CAMO) t = 2;   // a hidden Treant is a tree
       row[x] = t;
     }
-    for (i = 0; i < item_n; i++) if (item_code[i] && item_cell[i] / COLS == y) row[item_cell[i] % COLS] = 10;
+    for (i = 0; i < item_n; i++) if (item_code[i] && item_cell[i] / COLS == y && !fogged(item_cell[i] % COLS, y)) row[item_cell[i] % COLS] = 10;
     for (i = 0; i < npc_n; i++) if (npc_y[i] == y) row[npc_x[i]] = 9;
-    for (i = 0; i < en_n; i++) if (!(en_state[i] & EN_DEAD) && en_y[i] == y) row[en_x[i]] = (type_ak[en_type[i]] != NONE && (kinds_rt[type_ak[en_type[i]]].flags & KF_BOSS)) ? 8 : 7;
+    for (i = 0; i < blk_n; i++) if (blk_y[i] == y && blk_x[i] != NONE) row[blk_x[i]] = 2;
+    for (i = 0; i < en_n; i++) if (!(en_state[i] & EN_DEAD) && en_y[i] == y && look_now[y * COLS + en_x[i]] != LK_CAMO && !fogged(en_x[i], y)) row[en_x[i]] = (type_ak[en_type[i]] != NONE && (kinds_rt[type_ak[en_type[i]]].flags & KF_BOSS)) ? 8 : 7;
     if (fox.y == y) row[fox.x] = 6;
     for (x = 0; x < COLS; x++) { attr[x] = ov_attr[row[x]]; row[x] += OV_BASE; }
     set_bkg_tiles(3, 20 + y, COLS, 1, row);
@@ -65,6 +69,7 @@ void game_start(void) BANKED {
   area_enter(0);
   fox.x = area_spawn % COLS; fox.y = area_spawn / COLS;
   entered_area();
+  cells_draw_all();
   hud_title(area_title); hud_stats();   // entered_area set the boss line
   cam_x = cam_want(fox.x << 4);
   pal_level = 16; pal_dirty = 1;
@@ -77,6 +82,7 @@ void enter(uint8_t a, uint8_t spawn) BANKED {
   fox.x = spawn % COLS; fox.y = spawn / COLS;
   fa.type = A_NONE;
   entered_area();
+  cells_draw_all();
   hud_title(area_title); hud_stats();
   for (uint8_t s = 0; s < FLOATS; s++) fl_t[s] = 0;
   cam_x = cam_want(fox.x << 4);
