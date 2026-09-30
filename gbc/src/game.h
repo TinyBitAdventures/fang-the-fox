@@ -94,7 +94,7 @@ void far_vram(uint8_t *vram, uint8_t vbk, uint8_t bank, const uint8_t *src, uint
 
 // ---------- palettes: the area's colours, faded on the way to the screen (area.c) ----------
 extern palette_color_t bg_pal[32], obj_pal[32];
-extern uint8_t pal_level, pal_dirty;   // 0 = black, 16 = full colour; set pal_dirty after changing either
+extern uint8_t pal_level, pal_dirty, pal_half;   // 0 = black, 16 = full colour; set pal_dirty after changing either
 void pal_prepare(void);             // after the frame's work, when pal_dirty
 void pal_upload(void);              // right after VBlank starts
 
@@ -121,11 +121,12 @@ extern fox_anim_t fa;              // Fang's animation
 uint8_t cam_want(int16_t px);      // the camera for Fang at area pixel px
 void shake(uint8_t n);
 void transition(uint8_t to, uint8_t spawn);
+void transition_dark(uint8_t to, uint8_t spawn);   // the screen is dark already: straight to the change
 void game_over(void);
 uint8_t busy(void);
 void game_start(void) BANKED;
 void game_frame(uint8_t held, uint8_t pressed);
-enum { S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW, S_TALK, S_PERK, S_SHOP, S_TITLE };
+enum { S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW, S_TALK, S_PERK, S_SHOP, S_TITLE, S_PAUSE, S_CREDITS };
 extern uint8_t game_state, skip_leave;   // skip_leave: the next area change doesn't write the area left (loading a save)
 
 // ---------- the rules: the port of js/game.js (logic.c, banked) ----------
@@ -135,6 +136,10 @@ void eat_fish(void) BANKED;
 void fire_spin(void) BANKED;
 void respawn(void) BANKED;
 void entered_area(void) BANKED;     // the web's enterArea after the area is loaded (fresh foes, reset puzzles, re-form paths)
+enum { HURT_LAVA = 0xF0, HURT_SPORE, HURT_VENT, HURT_FIRE, HURT_POISON };   // below these: a monster type
+extern char death_by[NAME_LEN];     // what felled Fang (combat.c)
+void set_death_by(uint8_t src) BANKED;
+extern uint8_t tele_n, tele_x[6], tele_y[6];   // the dragon's breath: the cells it will burn (logic.c)
 void light_brazier(uint8_t i, uint8_t x, uint8_t y) BANKED;   // puzzle.c: lightBrazier, pushBlock, checkPuzzle
 void push_block(uint8_t b, int8_t dx, int8_t dy) BANKED;
 void check_puzzle(void) BANKED;
@@ -182,6 +187,22 @@ extern uint8_t hud_hold;            // a dialogue or menu covers the HUD: draw n
 void hud_refresh(void);             // draw it all again (the window was used for something else)
 void hud_goal(const char *s);       // the quest line: after the message showing, or now
 
+// ---------- text canvases for the window's menus (canvas.c, bank 0) ----------
+#define CV_W 18
+enum { CV_MENU, CV_PAUSE };
+extern uint8_t cv_buf[CV_W * 16], cv_mode;
+uint8_t cv_tile(uint8_t r);
+uint8_t cv_bank(uint8_t r);
+void cv_upload(uint8_t r, uint8_t t, const uint8_t *src, uint8_t n);
+void cv_begin(void);
+void cv_draw(uint8_t x, const char *s, uint8_t colour);   // colour 1 white, 2 blue, 3 yellow
+void cv_right(uint8_t x_end, const char *s, uint8_t colour);
+void cv_centre(const char *s, uint8_t colour);
+void cv_end(uint8_t r);
+void cv_line(uint8_t r, const char *s, uint8_t colour);
+void cv_row(uint8_t y, uint8_t r);
+uint8_t cv_wrap(uint8_t r0, uint8_t lines, const char *s, uint8_t colour);
+
 // ---------- the dialogue box and menus (dialog.c, window layer) ----------
 extern char dlg_text[192];          // the line being shown (story.c fills it and dlg_who)
 extern uint8_t dlg_who, perk_choice[3], perk_choice_n;
@@ -216,6 +237,24 @@ extern uint8_t load_area;
 uint8_t has_save(void) BANKED;
 uint8_t load_game(void) BANKED;
 void save_game(void) BANKED;
+void save_erase(void) BANKED;
+void objective_copy(void) BANKED;   // the quest line into msg
+
+// ---------- the pause screen, settings and the credits (pause.c); the death box (dialog.c) ----------
+extern uint8_t opt_music, opt_sfx, opt_vol, opt_shake;   // saved in cartridge RAM bank 1
+extern uint8_t anim_hold;           // the window borrows the biome's tiles: no tile animation meanwhile
+void settings_load(void) BANKED;
+void pause_open(void) BANKED;
+void pause_frame(uint8_t pressed) BANKED;
+void credits_start(void) BANKED;
+void credits_frame(uint8_t pressed) BANKED;
+void death_open(void) BANKED;
+void death_frame(void) BANKED;
+void death_close(void) BANKED;
+void area_reload_tiles(void) BANKED;   // the biome's tiles and palettes again, after the window borrowed them
+extern uint8_t music_on;
+void music_enable(uint8_t on);
+extern uint8_t pal_dim;             // the world at half light, the window's text palette at full (the death box)
 
 // ---------- sound (audio.c, sfx.c) ----------
 void music_start(void);

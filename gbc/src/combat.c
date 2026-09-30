@@ -147,7 +147,7 @@ static void kill_enemy(uint8_t e) {
   }
   if (m->flags & MF_EXPLODES) {
     sfx_play(SFX_BOOM); shake(4);
-    if (adist(en_x[e], fox.x) <= 1 && adist(en_y[e], fox.y) <= 1) hurt_fox(10, &dealt);
+    if (adist(en_x[e], fox.x) <= 1 && adist(en_y[e], fox.y) <= 1) hurt_fox(10, HURT_SPORE, &dealt);
   }
   if (m->flags & MF_SPLITS) {
     uint8_t k = free_spots_near(en_x[e], en_y[e], 1);
@@ -185,14 +185,20 @@ void gain_xp(uint16_t n) BANKED {
   hud_stats();
 }
 
-void hurt_fox(uint8_t amount, uint8_t *dealt) BANKED {
+// what felled Fang, for the death screen (js gameOver(source)): a monster's name or a hazard
+char death_by[NAME_LEN];
+void set_death_by(uint8_t src) BANKED {
+  const char *s = src < TYPE_COUNT ? monsters[src].name : src == HURT_LAVA ? "Lava" : src == HURT_SPORE ? "Spore burst" : src == HURT_VENT ? "Steam vent" : src == HURT_FIRE ? "Dragon fire" : "Poison";
+  strncpy(death_by, s, NAME_LEN - 1);
+}
+void hurt_fox(uint8_t amount, uint8_t src, uint8_t *dealt) BANKED {
   *dealt = 0;
   if (b_barrier) { b_barrier--; float_num(fox.x, fox.y, "BLOCK"); sfx_play(SFX_FREEZE); return; }
   uint8_t dmg = amount; if (HAS_PERK(P_THICKFUR) && dmg > 1) dmg--;
   fox.hp -= dmg; shake(dmg >= 10 ? 4 : 2); sfx_play(SFX_HURT); num_float(fox.x, fox.y, "-", dmg, "");
   if (fox.hp <= 0) {
     if (HAS_PERK(P_SECONDWIND) && !b_second_wind) { b_second_wind = 1; fox.hp = 1; hud_say("Second Wind! Fang refuses to fall!"); sfx_play(SFX_LEVEL); }
-    else { fox.hp = 0; game_over(); }
+    else { fox.hp = 0; set_death_by(src); game_over(); }
   }
   hud_stats();
   *dealt = dmg;
@@ -202,7 +208,7 @@ void enemy_strike(uint8_t e, uint8_t counter) BANKED {
   uint8_t atk = m->atk, dealt;
   if (m->phases) atk += (en_phase[e] - 1) * 3;
   en_anim[e] = A_LUNGE; en_anim_t[e] = 0; en_from[e] = ((fox.x > en_x[e]) - (fox.x < en_x[e]) + 1) | (((fox.y > en_y[e]) - (fox.y < en_y[e]) + 1) << 2);
-  hurt_fox(atk, &dealt);
+  hurt_fox(atk, en_type[e], &dealt);
   if (fox.hp <= 0) return;
   if (m->poison && dealt && !b_ward) { b_poison = m->poison; m_clear(); m_s("The "); m_s(m->name); m_s(" poisons you!"); hud_say(msg); }
   else if ((m->flags & MF_SLEEPER) && dealt && CHANCE(P_30)) { b_sleep = 1; hud_say("Dream dust... Fang grows sleepy."); }

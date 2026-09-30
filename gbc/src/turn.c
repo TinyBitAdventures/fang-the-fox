@@ -69,7 +69,7 @@ static void enemy_act(uint8_t e) {
 static void breathe(void) {
   uint8_t dealt;
   sfx_play(SFX_BOOM); shake(5);
-  for (uint8_t k = 0; k < tele_n; k++) if (tele_x[k] == fox.x && tele_y[k] == fox.y) hurt_fox(HAS_FLAG(F_SCALE) ? 0 : HAS_PERK(P_HEATRESIST) ? 7 : 14, &dealt);
+  for (uint8_t k = 0; k < tele_n; k++) if (tele_x[k] == fox.x && tele_y[k] == fox.y) hurt_fox(HAS_FLAG(F_SCALE) ? 0 : HAS_PERK(P_HEATRESIST) ? 7 : 14, HURT_FIRE, &dealt);
   tele_n = 0;
 }
 void end_turn(void) BANKED {
@@ -78,7 +78,7 @@ void end_turn(void) BANKED {
   uint8_t under = item_at(idx(fox.x, fox.y));
   if (under && item_code[under - 1] != IT_CHEST_LOCKED) pickup(under - 1);
   if (HAS_PERK(P_REGENERATION) && !(turn & 3) && fox.hp < (int16_t)fox.max_hp) fox.hp++;
-  if (b_poison) { b_poison--; fox.hp -= 2; float_num(fox.x, fox.y, "-2"); if (fox.hp <= 0) { fox.hp = 0; hud_stats(); game_over(); return; } }
+  if (b_poison) { b_poison--; fox.hp -= 2; float_num(fox.x, fox.y, "-2"); if (fox.hp <= 0) { fox.hp = 0; hud_stats(); set_death_by(HURT_POISON); game_over(); return; } }
   if (b_mushroom) b_mushroom--;
   if (b_haste) b_haste--;
   if (b_ward) b_ward--;
@@ -93,7 +93,7 @@ void end_turn(void) BANKED {
   if (!area_solved) for (i = 0; i < brz_n; i++) if (lit_t[i] && lit_t[i] != LIT_FOREVER && !--lit_t[i]) { hud_say("A brazier gutters out!"); sfx_play(SFX_LOCKED); }
   if (turn % 3 == 0) for (i = 0; i < CELLS; i++) if (tiles[i] == 'v') {
     uint8_t x = i % COLS, y = i / COLS;
-    if (adist(x, fox.x) + adist(y, fox.y) <= 1) hurt_fox(HAS_PERK(P_HEATRESIST) ? 4 : 8, &dealt);
+    if (adist(x, fox.x) + adist(y, fox.y) <= 1) hurt_fox(HAS_PERK(P_HEATRESIST) ? 4 : 8, HURT_VENT, &dealt);
   }
   if (fox.hp <= 0) return;
   for (i = 0; i < en_n; i++) if ((en_state[i] & (EN_DEAD | EN_GONE)) == EN_DEAD && en_revive_in[i] != NONE) {

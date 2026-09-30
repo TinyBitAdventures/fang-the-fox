@@ -7,6 +7,7 @@
 #pragma bank 255
 #include <gb/gb.h>
 #include <gb/cgb.h>
+#include <string.h>
 #include "game.h"
 
 uint8_t look_now[CELLS];          // the look each cell shows
@@ -69,7 +70,7 @@ static void cell_state(void) {
 // the cell's metatile: its look, paired with the look of the cell below (a look it can't take draws its first)
 static cell_rec_t ra, rb;
 static uint8_t mt[8];
-static void draw_cell(uint8_t i) {
+static void meta_of(uint8_t i) {   // the cell's metatile into mt: 4 tiles, then their 4 attributes
   uint8_t k, a = 0, b = 0;
   uint16_t m;
   far_copy(&ra, area_bank, area_recs + i, sizeof(cell_rec_t));
@@ -82,9 +83,38 @@ static void draw_cell(uint8_t i) {
     m += b;
   } else m += a;
   far_copy(mt, area_bank, area_metas + (m << 3), 8);
+}
+static void draw_cell(uint8_t i) {
   uint8_t x = cell_col[i] << 1, y = cell_row[i] << 1;   // safe while the screen is on: GBDK waits for the PPU per byte
+  meta_of(i);
   set_bkg_tiles(x, y, 2, 2, mt);
   VBK_REG = VBK_ATTRIBUTES; set_bkg_tiles(x, y, 2, 2, mt + 4); VBK_REG = VBK_TILES;
+}
+
+// the dragon's breath (view.js fx.telegraph): the cells it will burn blink red, their tiles drawn in BG
+// palette 5 turned red (the overview's, which isn't showing), until the fire lands
+static const palette_color_t tele_red[4] = { RGB(8, 1, 2), RGB(17, 2, 2), RGB(25, 6, 5), RGB(31, 16, 4) };
+static uint8_t tele_painted, tele_shown, tele_t, tele_cell[6];
+static void tele_paint(uint8_t i, uint8_t red) {
+  uint8_t q, x = cell_col[i] << 1, y = cell_row[i] << 1;
+  meta_of(i);
+  if (red) for (q = 4; q < 8; q++) mt[q] = (mt[q] & 0xF8) | 5;
+  VBK_REG = VBK_ATTRIBUTES; set_bkg_tiles(x, y, 2, 2, mt + 4); VBK_REG = VBK_TILES;
+}
+static void tele_frame(void) {
+  uint8_t k;
+  if (tele_n) {
+    if (!tele_painted) {
+      for (k = 0; k < tele_n; k++) tele_cell[k] = (tele_y[k] << 4) - (tele_y[k] << 1) + tele_x[k];
+      tele_painted = tele_n; tele_t = 6; tele_shown = 0;
+      memcpy(bg_pal + 20, tele_red, sizeof(tele_red)); pal_dirty = 1;
+    }
+    if (++tele_t >= 7) { tele_t = 0; tele_shown ^= 1; for (k = 0; k < tele_painted; k++) tele_paint(tele_cell[k], tele_shown); }   // 120 ms
+  } else if (tele_painted) {
+    for (k = 0; k < tele_painted; k++) tele_paint(tele_cell[k], 0);
+    tele_painted = 0;
+    memcpy(bg_pal + 20, ui_pal, 4 * sizeof(palette_color_t)); pal_dirty = 1;
+  }
 }
 
 // cells waiting to be redrawn: a turn can change several at once (a gate, vents, a crumbling path), and
@@ -103,6 +133,7 @@ static uint8_t prev_fog, prev_camo;
 static uint8_t camo_sig(void) { uint8_t s = camo_n; for (uint8_t k = 0; k < camo_n; k++) s += camo_cell[k]; return s; }
 void cells_draw_all(void) BANKED {
   uint8_t i;
+  if (tele_painted) { tele_painted = 0; memcpy(bg_pal + 20, ui_pal, 4 * sizeof(palette_color_t)); pal_dirty = 1; }
   pend_n = pend_head = 0; for (i = 0; i < sizeof(pend_mark); i++) pend_mark[i] = 0;
   cell_state(); chg_n = 0; prev_fog = fog_clear; prev_camo = camo_sig();
   for (i = 0; i < CELLS; i++) look_now[i] = cell_look(i);
@@ -132,6 +163,7 @@ static uint8_t *tile_addr(uint16_t id) { return (uint8_t *)(id < 128 ? 0x9000 + 
 static uint8_t still;
 void cells_frame(void) BANKED {
   uint8_t a, s, f;
+  if (anim_hold) return;   // the pause screen or the credits have the biome's tiles and the background
   if (dbg_cam && !still) { still = 1; for (a = 1; a < ANIMATORS; a++) { anim_t[a] = anim_frames[a] - 1; anim_f[a] = 2; } }   // tests: frame 0, held
   else if (still) { if (dbg_cam) return; still = 0; }
   for (a = 1; a < ANIMATORS; a++) {
@@ -153,6 +185,7 @@ void cells_frame(void) BANKED {
     pend_n--; pend_mark[i >> 3] &= ~(1 << (i & 7));
     draw_cell(i);
   }
+  tele_frame();
   if (++flame_t >= 7) { flame_t = 0; flame_f = flame_f == 2 ? 0 : flame_f + 1; }   // 120 ms
   if (++flick_t >= 9) { flick_t = 0; flick ^= 1; }                                 // 150 ms
 }

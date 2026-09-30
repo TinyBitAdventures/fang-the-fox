@@ -43,7 +43,7 @@ for n in range(count):
         mark = full.copy(); mark[diff] = (255, 0, 255)   # the ROM, the preview, the ROM with the differences in magenta
         Image.fromarray(np.concatenate([full, preview[cy:cy + 128, cx:cx + 224], mark], axis=0)).resize((448, 768), Image.NEAREST).save(out / f'diff-{n + 1}.png')
     if rom.area() != n: bad.append(f'expected area {n} on screen, the ROM is in area {rom.area()}')
-    rom.tap('start', 2)                                       # debug: next area
+    rom.poke('dbg_goto', (n + 1) % count + 1)                 # debug: the next area
 rom.stop()
 sheet.save(out / 'areas-rom.png')
 print(f'{count} areas captured: {out / "areas-rom.png"}')

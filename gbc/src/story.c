@@ -62,6 +62,8 @@ static const char *objective_text(void) {
   }
   return "Every kit is home and every relic found. You are a legend, Fang!";
 }
+void objective_copy(void) BANKED { m_clear(); m_s(objective_text()); }   // for the pause screen
+
 void show_objective(void) BANKED {   // the web's banner; here it follows whatever message is showing
   const char *s = objective_text();
   m_clear(); m_s("Quest: "); m_s(s); hud_goal(msg);
@@ -312,11 +314,7 @@ void story_after(void) BANKED {
     }
     case AF_BOSS: if (game_state == S_PLAY) hud_say("Pick up the Ember!"); break;
     case AF_INTRO: hud_say("The D-pad moves. Bump into Grandma to talk."); show_objective(); break;
-    case AF_ENDING:   // the credits come in phase 5: straight to finishCredits
-      fox.hp = fox.max_hp; SET_FLAG(F_ENDED); hud_stats();
-      transition(AR_HOME, 10);
-      queue_story(ST_AFTER_CREDITS, 0, 0);
-      break;
+    case AF_ENDING: credits_start(); break;   // pause.c rolls them, then finishCredits
   }
 }
 

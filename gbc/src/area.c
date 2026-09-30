@@ -53,6 +53,8 @@ static void load_biome(uint8_t b) {
   cur_biome = b;
 }
 
+void area_reload_tiles(void) BANKED { load_biome(A.biome); }   // after the pause screen or the credits borrowed them
+
 static void load_kind(uint8_t n) {
   const kind_t *kp;
   kind_rt_t *r = &kinds_rt[n];

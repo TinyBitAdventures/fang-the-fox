@@ -9,12 +9,13 @@ static const sfx_t *cur;
 static uint8_t t, active;   // frame within the effect, channels in use (bit 1: ch 2, bit 3: ch 4)
 
 static void release(void) {
-  if (active & 2) { NR22_REG = 0; hUGE_mute_channel(HT_CH2, HT_CH_PLAY); }
-  if (active & 8) { NR42_REG = 0; hUGE_mute_channel(HT_CH4, HT_CH_PLAY); }
+  if (active & 2) { NR22_REG = 0; if (music_on) hUGE_mute_channel(HT_CH2, HT_CH_PLAY); }
+  if (active & 8) { NR42_REG = 0; if (music_on) hUGE_mute_channel(HT_CH4, HT_CH_PLAY); }
   active = 0; cur = 0;
 }
 
 void sfx_play(uint8_t id) {
+  if (!opt_sfx) return;
   if (cur) release();
   cur = &sfx_table[id]; t = 0;
 }

@@ -2,11 +2,12 @@
 # Smoke test: Fang walks, trees and the island's edge stop him, the camera follows, a door takes him
 # to the right area and cell, the music plays, SELECT shows the overview; the world on screen changes
 # with the rules (braziers and their gate, a block on a plate, a Treant hiding as a tree); talking, a sign,
-# Rudy's shop, a perk pick, and a save that CONTINUE brings back.
+# Rudy's shop, a perk pick, and a save that CONTINUE brings back; the pause screen and its options, the
+# death box, and the credits.
 # usage: gbc/.venv/bin/python gbc/tools/bot/smoke.py
 import re, sys
 import numpy as np
-from rom import Rom, GBC, S_PLAY, S_TALK, S_PERK, S_SHOP, S_TITLE
+from rom import Rom, GBC, S_PLAY, S_DEAD, S_TALK, S_PERK, S_SHOP, S_TITLE, S_PAUSE, S_CREDITS
 
 WORLD = (GBC / 'src/gen/world.h').read_text()
 LK = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define LK_(\w+) (\d+)', WORLD)}
@@ -121,5 +122,27 @@ check(rom.state() == S_TITLE, 'after switching off, the title offers CONTINUE')
 rom.tap('a', 60)
 now = (rom.area(), rom.fox(), rom.u8('fish'), rom.u8('gems'), rom.u8('perks') | rom.u8('perks', 1) << 8)
 check(rom.state() == S_PLAY and now == saved, f'CONTINUE puts Fang back where he was, with his fish, gems and perks {now}')
+
+# the pause screen, the death box, the credits
+rom.tap('start', 30)
+check(rom.state() == S_PAUSE and rom.pb.memory[0xFF4A] == 0, 'START opens the pause screen over the whole screen')
+for _ in range(3): rom.tap('right', 12)   # MAP, QUEST, FANG, OPTIONS
+rom.tap('down', 8); rom.tap('right', 8)   # MUSIC: off
+check(not rom.u8('opt_music'), 'on OPTIONS, the first setting switches the music off')
+rom.tap('a', 8); rom.tap('b', 40)
+check(rom.state() == S_PLAY and rom.u8('opt_music') and rom.pb.memory[0xFF4A] == 128, 'A switches it back; B closes the pause screen and the HUD returns')
+rom.poke('en_n', 0); rom.poke('fox', 1, 8); rom.poke('fox', 1, 9); rom.poke('fox', 1, 0); rom.poke('fox', 0, 1); rom.poke('b_poison', 2)   # at (1,1) with 1 hp
+rom.tap('left', 40)
+check(rom.state() == S_DEAD and rom.pb.memory[0xFF4A] == 96 and bytes(rom.u8('death_by', i) for i in range(6)) == b'Poison', 'poison fells Fang: the death box names it')
+rom.tap('a', 60)
+check(rom.state() == S_PLAY and rom.hp() == rom.stat(2), 'A gets him back up with full health')
+rom.poke('story_fn', 3); rom.poke('story_t', 0); rom.poke('story_t', 0, 1); rom.poke('story_n', 1); rom.tick(20)   # the ending, as after the Primordial
+rom.skip_talk(); rom.tick(20)
+check(rom.state() == S_CREDITS, 'after the ending the credits roll')
+for _ in range(30):
+    if rom.state() != S_CREDITS: break
+    rom.tap('a', 20)
+rom.tick(60)
+check(rom.state() == S_PLAY and rom.area() == AR['HOME'] and rom.u8('flags', 2) & 1, 'A runs them through and back to Forest Home, the ending seen')
 rom.stop()
 if fails: sys.exit(1)

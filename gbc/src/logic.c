@@ -80,7 +80,7 @@ static void hazards_on(uint8_t x, uint8_t y, int8_t dx, int8_t dy) {
   uint8_t ch = tile_at(x, y), dealt;
   if (ch == 'l') {
     uint8_t dmg = HAS_FLAG(F_SCALE) ? 0 : HAS_PERK(P_HEATRESIST) ? 10 : 20;
-    if (dmg) hurt_fox(dmg, &dealt);
+    if (dmg) hurt_fox(dmg, HURT_LAVA, &dealt);
   } else if (ch == 'e' && !HAS_PERK(P_NATUREBOND)) { b_rooted = 1; hud_say("Vines wrap around your paws!"); }
   else if (ch == 'i' && !HAS_FLAG(F_CLOAK)) {
     uint8_t slide = area_flags & AF_SLIDE, cx = x, cy = y, moved = 0;

@@ -17,7 +17,7 @@ const ART = path.join(GBC, 'art');   // GBC art: same format as js/sprites-*.js,
 if (fs.existsSync(ART)) for (const f of fs.readdirSync(ART).filter(f => f.endsWith('.js')).sort()) runFile(path.join(ART, f), `gbc/art/${f}`);
 const OV = require(path.join(GBC, 'overrides.js'));
 for (const [k, v] of Object.entries(OV.areas || {})) Object.assign(W.AREAS[k], v);
-const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT, TRACKS, KITS, SPEAKERS, KIT_INFO, SHOP } = W;
+const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT, TRACKS, KITS, SPEAKERS, KIT_INFO, SHOP, CREDITS } = W;
 const G = require('./lib/gfx')(PAL), SONG = require('./lib/song');
 
 const COLS = 14, ROWS = 8, CELLS_N = COLS * ROWS, GX = 80, GY = 54;   // web grid origin, used by the floor-variant hash
@@ -312,7 +312,9 @@ function buildKind(name) {
 }
 // the edge marker: an arrow pointing left (flipped for the right edge), in the effects palette
 const MARKER = (() => { const t = new Array(128).fill(0); [[5, 4], [4, 5], [3, 6], [4, 7], [5, 8]].forEach(([x, y]) => { t[y * 8 + x] = 1; t[y * 8 + x + 1] = 2; t[y * 8 + x + 2] = 2; }); [[2, 5], [1, 6], [2, 7]].forEach(([x, y]) => { t[y * 8 + x] = 1; t[y * 8 + x + 1] = 3; }); return t; })();
-kinds.marker = { name: 'marker', frames: 1, cols: 1, rows: 1, flags: 0, pals: [], palOf: [0], tiles: [MARKER], ownPals: 0 };
+// frame 1: the "!" over a friend with something new to say (view.js npcHasNews)
+const EXCLAIM = (() => { const t = new Array(128).fill(0); for (let y = 4; y <= 14; y++) for (let x = 2; x <= 5; x++) t[y * 8 + x] = 1; for (let y = 5; y <= 10; y++) { t[y * 8 + 3] = 3; t[y * 8 + 4] = 2; } t[12 * 8 + 3] = 3; t[12 * 8 + 4] = 2; t[13 * 8 + 3] = 2; t[13 * 8 + 4] = 2; for (let x = 2; x <= 5; x++) t[11 * 8 + x] = 1; return t; })();
+kinds.marker = { name: 'marker', frames: 2, cols: 1, rows: 1, flags: 0, pals: [], palOf: [0, 0], tiles: [MARKER, EXCLAIM], ownPals: 0 };
 // a lit brazier's flame: what brazier_on_0-2 add to brazier_off (the flame and the glowing coals), in the
 // top 16 rows of the 20-row sprite, so its bottom sits 4 px above the cell's bottom
 {
@@ -515,6 +517,49 @@ portraits.forEach((P, n) => {
     `static const uint8_t tiles[] = {\n${hex(P.idx.flatMap(G.enc2bpp))}\n};\nstatic const uint8_t pal_of[] = { ${P.palOf.join(', ')} };\n` +
     `static const palette_color_t pal[] = {\n${hex16(pal)}\n};\nconst portrait_t portrait_${n} = { tiles, pal_of, pal };\n`);
 });
+// the pause screen's world map (pause.c includes this): each island's tile, the dotted paths between
+// them, a colour per biome (view.js BIOME_MAP_COLOR, three to each of 4 palettes), the icons
+{
+  const MAPCOL = vm.runInNewContext('(' + fs.readFileSync(path.join(ROOT, 'js', 'view.js'), 'utf8').match(/const BIOME_MAP_COLOR = (\{[^}]*\})/)[1] + ')');
+  const hexKey = {}; for (const [k, v] of Object.entries(PAL)) hexKey[v.toLowerCase()] = k;
+  const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const COLOURS = [...new Set(Object.values(MAPCOL))];   // 12: three to a palette, over the panel's colour
+  if (COLOURS.length > 12) problems.push(`the world map has ${COLOURS.length} island colours (12 at most)`);
+  const groupOf = c => COLOURS.indexOf(c);   // palette = n / 3, colour = n % 3 + 1
+  const xs = AREA_KEYS.map(k => AREAS[k].pos[0]), ys = AREA_KEYS.map(k => AREAS[k].pos[1]);
+  const mx = k => Math.round((AREAS[k].pos[0] - Math.min(...xs)) / (Math.max(...xs) - Math.min(...xs)) * 16) + 1;
+  const my = k => Math.round((AREAS[k].pos[1] - Math.min(...ys)) / (Math.max(...ys) - Math.min(...ys)) * 12) + 2;
+  const island = new Set(AREA_KEYS.flatMap(k => [my(k) * 20 + mx(k), my(k) * 20 + mx(k) + 1]));
+  const edges = [], dots = [], seen = new Set();
+  for (const k of AREA_KEYS) for (const d of Object.values(AREAS[k].doors)) {
+    const key = [k, d.to].sort().join(); if (seen.has(key)) continue; seen.add(key);
+    const x0 = mx(k) + 0.5, y0 = my(k), x1 = mx(d.to) + 0.5, y1 = my(d.to), n = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) * 2), cells = [];
+    for (let s = 1; s < n; s++) { const c = Math.round(y0 + (y1 - y0) * s / n) * 20 + Math.round(x0 + (x1 - x0) * s / n); if (!island.has(c) && !cells.includes(c)) cells.push(c); }
+    edges.push(`{ ${AREA_KEYS.indexOf(k)}, ${AREA_KEYS.indexOf(d.to)}, ${d.when ? FLAGS.indexOf(d.when) : 0xFF}, ${cells.length}, ${dots.length} }`);
+    dots.push(...cells);
+  }
+  if (dots.length > 255) problems.push(`the world map has ${dots.length} path dots (255 at most)`);
+  const pal = []; for (let p = 0; p < 4; p++) pal.push(G.to555('1'), ...[0, 1, 2].map(v => { const c = COLOURS[p * 3 + v]; if (!c) return 0; const [r, gg, b] = rgb(c); return (r >> 3) | ((gg >> 3) << 5) | ((b >> 3) << 10); }));
+  pal.push(G.to555('1'), G.to555('R'), G.to555('y'), G.to555('6'));   // markers: a boss alive, beaten, you are here
+  const IS = ['................', '..CCCCCCCCCCCC..', '.CCCCCCCCCCCCCC.', '.CCCCCCCCCCCCCC.', '..CCCCCCCCCCCC..', '...CCCCCCCCCC...', '.....CCCCCC.....', '.......CC.......'];
+  const half = (h, v) => { const t = []; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) t.push(IS[y][h * 8 + x] === 'C' ? v : 0); return t; };
+  const blob = (pts, v) => { const t = new Array(64).fill(0); for (const [x, y] of pts) t[y * 8 + x] = v; return t; };
+  const qmark = (() => { const g = FONT['?'], t = new Array(64).fill(0); for (let k = 0; k < g.px.length; k += 2) t[(g.px[k + 1] + 1) * 8 + g.px[k] + 2] = 2; return t; })();
+  const boss = v => blob([[3, 5], [4, 5], [2, 6], [3, 6], [4, 6], [5, 6], [3, 7], [4, 7]], v);
+  const here = blob([[1, 3], [2, 3], [3, 3], [4, 3], [5, 3], [6, 3], [2, 4], [3, 4], [4, 4], [5, 4], [3, 5], [4, 5]], 2);
+  const MAP_TILES = [half(0, 1), half(1, 1), half(0, 2), half(1, 2), half(0, 3), half(1, 3), blob([[3, 3], [4, 3], [3, 4], [4, 4]], 2), qmark, boss(1), boss(2), here];
+  write('mapdata.inc', `// the world map (pause.c): tile x, y and colour of each island (n: palette n / 3, colour n % 3 + 1; 0x80: a boss's),\n// the flag that beats its boss, the paths (dots, each at map_dot_x, map_dot_y), 4 island palettes and a marker palette, the icons\n` +
+    `static const uint8_t map_x[AREA_COUNT] = { ${AREA_KEYS.map(mx).join(', ')} };\nstatic const uint8_t map_y[AREA_COUNT] = { ${AREA_KEYS.map(my).join(', ')} };\n` +
+    `static const uint8_t map_look[AREA_COUNT] = { ${AREA_KEYS.map(k => groupOf(MAPCOL[AREAS[k].biome]) | (AREAS[k].boss ? 0x80 : 0)).join(', ')} };\n` +
+    `static const uint8_t map_boss_flag[AREA_COUNT] = { ${AREA_KEYS.map(k => { const t = Object.keys(BOSS_FLAG).find(b => AREAS[k].map.join('').includes(b)); return t ? FLAGS.indexOf(BOSS_FLAG[t]) : 0xFF; }).join(', ')} };\n` +
+    `static const char * const map_region[AREA_COUNT] = { ${AREA_KEYS.map(k => JSON.stringify(AREAS[k].region || '')).join(', ')} };\n` +
+    `typedef struct { uint8_t a, b, when, n, first; } map_edge_t;\nstatic const map_edge_t map_edges[] = {\n  ${edges.join(',\n  ')}\n};\n#define MAP_EDGES ${edges.length}\n` +
+    `static const uint8_t map_dot_x[] = {\n${hex(dots.map(c => c % 20), 20)}\n};\nstatic const uint8_t map_dot_y[] = {\n${hex(dots.map(c => (c / 20) | 0), 20)}\n};\nstatic const palette_color_t map_pal[20] = {\n${hex16(pal)}\n};\n` +
+    `static const uint8_t map_tiles[] = {\n${hex(MAP_TILES.flatMap(G.enc2bpp))}\n};\n#define MAP_TILES ${MAP_TILES.length}\n`);
+}
+// the credits (js/story.js CREDITS): each line's text and colour (1 white, 2 blue, 3 yellow for titles)
+write('credits.inc', `static const char * const credit_text[] = { ${CREDITS.map(([t]) => JSON.stringify(t)).join(', ')} };\n` +
+  `static const uint8_t credit_colour[] = { ${CREDITS.map(([t, c, sc]) => (sc > 1 || c === '#e8622a' || c === '#ffd35c' ? 3 : c === '#eef4ff' ? 1 : 2)).join(', ')} };\n#define CREDIT_LINES ${CREDITS.length}\n`);
 // the menus' words (dialog.c includes this): speakers, perks, Rudy's wares
 write('ui.inc', `static const char * const speaker_name[SPEAKER_COUNT] = { ${SPEAKER_IDS.map(id => cstr(SPEAKERS[id].name)).join(', ')} };\n` +
   `static const char * const ui_perk_name[PERK_COUNT] = { ${PERK_KEYS.map(k => cstr(W.PERKS[k].name)).join(', ')} };\n` +
@@ -614,6 +659,7 @@ write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   `const palette_color_t ui_pal[12] = {\n${hex16(OVERVIEW_PAL.concat(HUD_PAL, TEXT_PAL).map(G.to555))}\n};\n` +
   `const uint8_t font[] = {\n${hex(glyphs.flat(), 12)}\n};\n`);
 write('world_far.c', `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\n` +
+  `// pal.c's fade: channel value i at level l (0-16) is (i * l) >> 4\nBANKREF(fade_lut)\nconst uint8_t fade_lut[17 * 32] = {\n${hex([...Array(17 * 32).keys()].map(n => ((n & 31) * (n >> 5)) >> 4), 32)}\n};\n\n` +
   AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
   usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
   KIND_NAMES.map(k => `BANKREF_EXTERN(kind_${k})\nextern const kind_t kind_${k};`).join('\n') + '\n' +

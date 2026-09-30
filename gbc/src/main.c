@@ -17,9 +17,10 @@ void main(void) {
   LCDC_REG = LCDCF_OFF | LCDCF_WIN9C00 | LCDCF_WINON | LCDCF_BG8800 | LCDCF_BG9800 | LCDCF_OBJ16 | LCDCF_OBJON | LCDCF_BGON;
   hud_init();
   game_start();
-  pal_prepare();
+  pal_prepare(); pal_prepare();   // both halves
   pal_upload();
   music_start();
+  settings_load();   // the options kept on the cartridge (volume, music, sound, shake)
   CRITICAL { add_VBL(joy_isr); }
   DISPLAY_ON;
   while (1) {
@@ -32,7 +33,7 @@ void main(void) {
     dbg_ly[0] = LY_REG;
     game_frame(j, pressed);
     dbg_ly[1] = LY_REG;
-    if (pal_dirty) pal_prepare();
+    if (pal_dirty || pal_half) pal_prepare();
     dbg_ly[2] = LY_REG;
   }
 }

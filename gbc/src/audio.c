@@ -7,6 +7,15 @@
 BANKREF_EXTERN(song_placeholder)
 extern const hUGESong_t song_placeholder;
 static uint8_t song_bank;
+uint8_t music_on = 1;
+
+// the options' MUSIC switch: the song keeps its place, its four channels fall silent (sfx.c leaves them muted)
+void music_enable(uint8_t on) {
+  if (on == music_on) return;
+  music_on = on;
+  for (uint8_t ch = 0; ch < 4; ch++) hUGE_mute_channel(ch, on ? HT_CH_PLAY : HT_CH_MUTE);
+  if (!on) { NR12_REG = 0; NR22_REG = 0; NR30_REG = 0; NR42_REG = 0; }
+}
 
 static void music_isr(void) {
   uint8_t save = _current_bank;

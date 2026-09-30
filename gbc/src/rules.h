@@ -64,7 +64,7 @@ static void crumble_behind(uint8_t i) {
 // ---------- across the rules files ----------
 void end_turn(void) BANKED;
 void gain_xp(uint16_t n) BANKED;
-void hurt_fox(uint8_t amount, uint8_t *dealt) BANKED;
+void hurt_fox(uint8_t amount, uint8_t src, uint8_t *dealt) BANKED;   // src: a monster type, or HURT_*
 void attack(uint8_t e, int8_t dx, int8_t dy) BANKED;
 uint8_t damage_enemy(uint8_t e, uint16_t dmg, uint8_t crit) BANKED;
 uint16_t calc_damage(uint8_t *crit) BANKED;

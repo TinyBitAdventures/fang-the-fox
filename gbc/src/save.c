@@ -66,6 +66,11 @@ void save_game(void) BANKED {
   slot_last = k;
 }
 
+void save_erase(void) BANKED {   // RESTART FROM SCRATCH
+  ENABLE_RAM; SWITCH_RAM(0); SLOT(0)->magic = 0; SLOT(1)->magic = 0; DISABLE_RAM;
+  slot_last = 0xFF;
+}
+
 uint8_t load_game(void) BANKED {   // restores the game; the caller enters load_area at Fang's cell
   static uint8_t buf[64];
   uint16_t off, n;

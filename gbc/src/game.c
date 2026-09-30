@@ -31,9 +31,10 @@ static uint8_t trans_t, trans_to, trans_spawn, dead_t, shake_n, queued;
 void fox_anim(uint8_t type, uint8_t from_x, uint8_t from_y, uint8_t frames) { fa.type = type; fa.t = 0; fa.d = frames; fa.fx = from_x; fa.fy = from_y; }
 void enemy_anim(uint8_t e, uint8_t type, uint8_t from_cell) { en_anim[e] = type; en_anim_t[e] = 0; en_from[e] = from_cell; }
 void block_anim(uint8_t b, uint8_t from_cell) { blk_anim_t[b] = 0; blk_from[b] = from_cell; }
-void shake(uint8_t n) { if (n > shake_n) shake_n = n; }
+void shake(uint8_t n) { if (opt_shake && n > shake_n) shake_n = n; }
 void transition(uint8_t to, uint8_t spawn) { state = S_TRANS; trans_t = 0; trans_to = to; trans_spawn = spawn; queued = 0; }
-void game_over(void) { state = S_DEAD; dead_t = 0; sfx_play(SFX_HURT); hud_say("Fang falls... Press A to try again."); }
+void transition_dark(uint8_t to, uint8_t spawn) { transition(to, spawn); trans_t = FADE - 1; }
+void game_over(void) { state = S_DEAD; dead_t = 0; sfx_play(SFX_HURT); }   // the death box opens a moment later
 uint8_t busy(void) {
   if (state == S_TRANS) return 2;
   if (fa.type != A_NONE) return 1;
@@ -51,6 +52,21 @@ void float_num(uint8_t x, uint8_t y, const char *text) {
   strncpy(float_text, text, sizeof(float_text) - 1); float_text[sizeof(float_text) - 1] = 0;
   float_render(s);
   fl_t[s] = FLOAT_LIFE; fl_x[s] = x; fl_y[s] = y;
+}
+
+// view.js npcHasNews: a "!" bobs over a friend with something new to say
+static uint8_t npc_news(uint8_t n) {
+  uint8_t id = npc_id[n], k, thanked = 0;
+  if (id == NPC_GRANDMA) {
+    for (k = 0; k < 5; k++) if (HAS_FLAG(F_KITTHANKS_KIT1 + k)) thanked |= 1 << k;
+    return !HAS_FLAG(F_METGRANDMA) || (kits_rescued & ~thanked) || (embers == 31 && !HAS_FLAG(F_HEARTH));
+  }
+  if (id == NPC_HOOT) return !HAS_FLAG(F_METHOOT) || (relic_n >= 5 && !HAS_FLAG(F_HOOT5)) || (relic_n >= 10 && !HAS_FLAG(F_HOOT10))
+    || (relic_n >= 15 && !HAS_FLAG(F_HOOT15)) || (relic_n >= RELIC_COUNT && !HAS_FLAG(F_CREST));
+  if (id == NPC_LUMEN) return !HAS_FLAG(F_METLUMEN);
+  if (id == NPC_QUEEN) return !HAS_FLAG(F_METQUEEN);
+  if (id >= NPC_KIT1) return !(kits_rescued & (1 << (id - NPC_KIT1)));
+  return 0;
 }
 
 uint8_t cam_want(int16_t px) {
@@ -174,6 +190,12 @@ static void draw(void) {
     spr_x[slot] = bx - cam_x + 8; sy = by - oy; spr_y[slot] = sy + 16;
     { uint8_t r = (uint8_t)(sy - 1) >> 4; if ((spr_row[r] += half >> 2) > 10) spr_over = 1; }
   }
+  for (i = 0; i < npc_n; i++) if (npc_news(i)) {   // the "!" (the marker's frame 1) over their head, or beside it on the top row
+    bx = (npc_x[i] << 4) + 8; by = (npc_y[i] << 4) + 17 - (kinds_rt[npc_ak[i]].rows << 4);
+    if (by < 13) { bx += 9; by += 9; }
+    if (bx + 4 <= cam_x || bx >= cam_x + 164) continue;
+    spr_put(AK_MARKER, 1, 0, 3, bx - cam_x, by - ((t8 >> 4) & 1) - oy);
+  }
   dbg_ly[5] = LY_REG;   // after friends and items
   // floating numbers rise for 40 frames above their cell
   for (i = 0; i < FLOATS; i++) if (fl_t[i]) {
@@ -209,6 +231,8 @@ void game_frame(uint8_t held, uint8_t pressed) {
     hud_frame(); draw(); return;
   }
   if (state == S_SHOP) { shop_frame(pressed); queued = 0; hud_frame(); draw(); return; }
+  if (state == S_PAUSE) { pause_frame(pressed); queued = 0; hud_frame(); draw(); return; }
+  if (state == S_CREDITS) { credits_frame(pressed); return; }
   if (state == S_TITLE) {
     uint8_t c = title_frame(pressed);
     if (c == 1 && load_game()) { skip_leave = 1; transition(load_area, fox.y * COLS + fox.x); hud_say("Welcome back, Fang!"); show_objective(); }
@@ -228,9 +252,10 @@ void game_frame(uint8_t held, uint8_t pressed) {
     if (trans_t == FADE * 2) state = S_PLAY;
   } else if (state == S_DEAD) {
     if (dead_t < 255) dead_t++;
-    if (dead_t > 36 && (pressed & (J_A | J_START))) { state = S_PLAY; respawn(); }
+    if (dead_t == 18) death_open(); else if (dead_t > 18) death_frame();   // js drawEnd: after 300 ms
+    if (dead_t > 36 && (pressed & (J_A | J_START))) { death_close(); state = S_PLAY; respawn(); }
   } else if (dbg_goto) { transition(dbg_goto - 1, NONE); dbg_goto = 0; }
-  else if (pressed & J_START) transition(area_idx + 1 == AREA_COUNT ? 0 : area_idx + 1, NONE);   // debug until the pause menu exists
+  else if ((pressed & J_START) && !busy()) pause_open();
   else if ((pressed & J_SELECT) && !busy()) {
     state = S_OVERVIEW; overview_draw();
     LCDC_REG &= ~LCDCF_OBJON; scroll_y = 128; cam_x = 0;

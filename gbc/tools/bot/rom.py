@@ -13,7 +13,7 @@ def symbols():
         if m: out[m.group(1)] = int(m.group(2), 16)
     return out
 
-S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW, S_TALK, S_PERK, S_SHOP, S_TITLE = range(8)   # game.h
+S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW, S_TALK, S_PERK, S_SHOP, S_TITLE, S_PAUSE, S_CREDITS = range(10)   # game.h
 
 class Rom:
     def __init__(self, sound=False, start=True, ram=None):   # ram: save RAM from an earlier run (stop(keep=True))
