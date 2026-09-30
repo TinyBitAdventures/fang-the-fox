@@ -51,6 +51,10 @@ The tools need Node and [Playwright](https://playwright.dev) (point `PW` at its 
 
 Run `validate.js` after map edits and `playthrough.js` after logic changes.
 
+## Game Boy Color edition
+
+A port to the Game Boy Color is in progress in [`gbc/`](gbc/README.md): a real `.gbc` ROM built with GBDK-2020 from this game's maps and data, playable in emulators, on hardware from a flash cart, and in the browser. Progress: [gbc/CHANGELOG.md](gbc/CHANGELOG.md).
+
 ## Music
 
 The soundtrack is the album [Tiny Bit Adventures](https://soundcloud.com/austinginder/sets/tiny-bit-adventures) by Austin Ginder, streamed from Backblaze B2. The music isn't included in this repository and isn't covered by the code license.
