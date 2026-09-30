@@ -41,7 +41,7 @@ for n in range(count):
         ys, xs = np.nonzero(diff)
         bad.append(f'area {n + 1}: {int(diff.sum())} pixels differ, first at x={xs[0]} y={ys[0]}')
     if rom.area() != n: bad.append(f'expected area {n} on screen, the ROM is in area {rom.area()}')
-    rom.tap('select', 2)                                      # debug: next area
+    rom.tap('start', 2)                                       # debug: next area
 rom.stop()
 sheet.save(out / 'areas-rom.png')
 print(f'{count} areas captured: {out / "areas-rom.png"}')

@@ -29,7 +29,10 @@ class Rom:
         self.pb.button_press(button); self.tick(2); self.pb.button_release(button); self.tick(after)
     def hold(self, button, frames):
         self.pb.button_press(button); self.tick(frames); self.pb.button_release(button); self.tick(2)
-    def fox(self): return self.u8('fox'), self.u8('fox', 1)
+    # fox_t (game.h): int16 hp, uint16 max_hp, xp, next; uint8 x, y, atk, lvl; int8 dir
+    def fox(self): return self.u8('fox', 8), self.u8('fox', 9)
+    def hp(self): v = self.u8('fox') | self.u8('fox', 1) << 8; return v - 65536 if v > 32767 else v
+    def stat(self, off): return self.u8('fox', off) | self.u8('fox', off + 1) << 8
     def area(self): return self.u8('area_idx')
     def screen(self): return self.pb.screen.ndarray[:, :, :3].copy()
     def stop(self): self.pb.stop(save=False)
