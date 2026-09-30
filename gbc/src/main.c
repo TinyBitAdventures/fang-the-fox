@@ -7,6 +7,10 @@
 #include "game.h"
 
 uint8_t dbg_ly[8];   // scanlines: frame start, after the game's work, after palettes; game.c stamps 3-7 (tests watch the budget)
+// the pad is read only here, at every VBlank (a joypad() in the main loop could be cut in half by this
+// interrupt), and presses are kept until the game takes them: a tap during a slow frame still counts
+static volatile uint8_t joy_edges, joy_last;
+static void joy_isr(void) { uint8_t j = joypad(); joy_edges |= j & ~joy_last; joy_last = j; }
 void main(void) {
   cpu_fast();
   DISPLAY_OFF;
@@ -16,17 +20,17 @@ void main(void) {
   pal_prepare();
   pal_upload();
   music_start();
+  CRITICAL { add_VBL(joy_isr); }
   DISPLAY_ON;
-  uint8_t prev = 0;
   while (1) {
     wait_vbl_done();
     SCX_REG = cam_x; SCY_REG = scroll_y;
     pal_upload();
     cells_frame();   // tile animation: first, so most of it lands in VBlank
-    uint8_t j = joypad();
+    uint8_t j, pressed;
+    CRITICAL { j = joy_last; pressed = joy_edges; joy_edges = 0; }
     dbg_ly[0] = LY_REG;
-    game_frame(j, j & ~prev);
-    prev = j;
+    game_frame(j, pressed);
     dbg_ly[1] = LY_REG;
     if (pal_dirty) pal_prepare();
     dbg_ly[2] = LY_REG;

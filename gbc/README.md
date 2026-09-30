@@ -2,7 +2,7 @@
 
 A port of [Fang the Fox](../README.md) to the Game Boy Color: a real `.gbc` ROM that runs in emulators (RetroArch, SameBoy, mGBA, a Retroid or any handheld), on a Game Boy Color from a flash cart, and in the browser. It is built from the web game's own maps and data (`../js/data.js`), so both versions stay the same game.
 
-**Status:** in development. Fang walks all 24 areas and fights with the web game's rules (checked step for step against it), picks up items, levels up, solves the puzzles and can beat the bosses; the world changes on screen as it does on the web (gates, trails, crumbling paths, fog, animated water and lava). There's a HUD, sound effects and a placeholder song. Talking, the story and saving come next. What's done: [CHANGELOG.md](CHANGELOG.md).
+**Status:** in development. Fang walks all 24 areas and fights with the web game's rules (checked step for step against it), picks up items, levels up, solves the puzzles, talks to everyone (portraits, the story, Rudy's shop, perk picks), saves to the cartridge and can beat the bosses; the world changes on screen as it does on the web (gates, trails, crumbling paths, fog, animated water and lava). There's a HUD, sound effects and a placeholder song. The pause menu, credits and the art and music come next. What's done: [CHANGELOG.md](CHANGELOG.md).
 
 ## Play the development build
 
@@ -11,6 +11,7 @@ A port of [Fang the Fox](../README.md) to the Game Boy Color: a real `.gbc` ROM 
 | In the game | Game Boy | Keyboard | Controller |
 |-------------|----------|----------|------------|
 | Move, attack, talk | D-pad | Arrow keys | D-pad or left stick |
+| Next line of dialogue, choose in a menu | A (or B) | X | Right or top face button |
 | Fire Spin (once learned) | A | X | Right or top face button |
 | Eat a fish | B | Z | Bottom or left face button |
 | Look at the whole area (hold) | Select | Shift | Select / Back |
@@ -39,7 +40,7 @@ The ROM is Color-only, MBC5 with 32 KB of battery-backed save RAM.
 | `tools/build.js` | Reads `../js/data.js` and the sprites, merges `overrides.js`, draws every look each cell can take (against every look of the cell below, whose tall art hangs into it) as metatiles, reduces the art to the GBC's limits (4 colours per 8x8 tile, 5 terrain palettes per biome, 256 tiles per biome) and writes the C tables to `src/gen/` plus a preview of every area (`build/preview/areas.png`). Fails the build when an area breaks a budget. |
 | `overrides.js` | Everything the port changes from the web game, each with its reason. `node ../tools/validate.js --gbc` checks the merged maps. |
 | `art/` | GBC art. Same format as the web sprites; a file here replaces the web sprite of the same name. |
-| `src/` | The ROM's C code. The rules, ported from `js/game.js` function by function: `logic.c` (actions, items, areas), `combat.c` (attacks, damage, bosses, experience), `turn.c` (the enemies' turn) and `puzzle.c` (braziers, blocks, gates), sharing `rules.h`. The view: `game.c` (input, animations, drawing, every frame), `cells.c` (each cell's look, redraws, tile animation) and `screen.c` (floating numbers, the overview, entering areas). `area.c` loads areas and keeps visited ones in save RAM (`sram.h`); `sprites.c`, `pal.c`, `hud.c`/`hud_draw.c`, `text.c`, `sfx.c`, `audio.c`, `rng.c`, `far.c`. `src/gen/` is generated and not in git. |
+| `src/` | The ROM's C code. The rules, ported from `js/game.js` function by function: `logic.c` (actions, items, areas), `combat.c` (attacks, damage, bosses, experience), `turn.c` (the enemies' turn) and `puzzle.c` (braziers, blocks, gates), sharing `rules.h`; `story.c` (a port of `js/story.js`: dialogue, quests, the shop, perk offers, the story queue) and `save.c` (two save slots). The view: `game.c` (input, animations, drawing, every frame), `cells.c` (each cell's look, redraws, tile animation), `dialog.c` (the dialogue box, the perk pick, the shop and the title, in the window layer) and `screen.c` (floating numbers, the overview, entering areas). `area.c` loads areas and keeps visited ones in save RAM (`sram.h`); `sprites.c`, `pal.c`, `hud.c`/`hud_draw.c`, `text.c`, `sfx.c`, `audio.c`, `rng.c`, `far.c`. `src/gen/` is generated and not in git. |
 | `music/` | Songs, compiled to hUGEDriver data by the build. `lib/hUGEDriver/` is the music driver (public domain). |
 | `web/` | The web player: [binjgb](https://github.com/binji/binjgb) plus controllers, touch, a per-game save and live reload. |
 | `tools/bot/` | [PyBoy](https://github.com/Baekalfen/PyBoy) tests: `shots.py` (every area's background matches the build's preview pixel for pixel, and the frame budget), `smoke.py` (walking, doors, camera, overview, music, the Goo King, braziers, blocks, a hidden Treant), `parity.py` and `parity_suite.py` (the ROM against the web game, step by step), `rom.py` (shared helpers: variables by name from `build/fang.noi`). |
@@ -52,7 +53,7 @@ The ROM is Color-only, MBC5 with 32 KB of battery-backed save RAM.
     python3 -m venv .venv && .venv/bin/pip install pyboy==2.7.0 pillow
     .venv/bin/python tools/bot/shots.py                 # every area from the ROM matches the preview
     .venv/bin/python tools/bot/smoke.py                 # walking, doors, camera, overview, music, the Goo King, puzzles
-    .venv/bin/python tools/bot/parity_suite.py          # the ROM plays 18 runs exactly like the web game
+    .venv/bin/python tools/bot/parity_suite.py          # the ROM plays 22 runs exactly like the web game
     PW=/path/to/node_modules/playwright OUT=build/shots/web \
       STEPS='[{"hold":["right"],"frames":40,"shot":1},{"press":"select","frames":30,"shot":1}]' node tools/screenshot.js
 
@@ -63,6 +64,8 @@ SDCC's code for the Game Boy's CPU keeps locals on the stack and has no multiply
 ROM bank 0 holds 16 KB and is always mapped; everything else sits in switchable banks. Code that runs every frame stays in bank 0; the rules and area loading are banked (`#pragma bank 255`, `BANKED` functions) and read other banks through `far.c`. A function that is handed a string must be in bank 0 (`hud_say`, `m_s`, `float_num`): the string may live in its caller's bank, which a banked callee would unmap.
 
 The rules never touch the screen: `set_tile` records which cells changed, and after each action `cells_refresh` works out their new looks (a table for tiles that always look the same) and queues redraws, which `cells_frame` draws two a frame right after VBlank starts. Writing the background while the screen is on is safe with GBDK's copies (they wait for the PPU byte by byte), but slow, so a busy turn never draws all its cells at once.
+
+GBDK's VRAM copies are safe with the screen on because they wait for the PPU before every byte, which makes them slow: opening a menu writes about 3 KB and takes two or three frames. Menus redraw only the rows that change, and the pad is read in the VBlank interrupt (never in the main loop, where the interrupt could cut a read in half), keeping presses until the game takes them.
 
 Watch for: masks above bit 7 turned into a `uint8_t` vanish (`HAS_PERK` returns 0 or 1 for that reason); `Math.random() < p` is `rng < ceil(p * 2^32)` and `(Math.random() * n) | 0` is `rng_below(n)`, both exact.
 

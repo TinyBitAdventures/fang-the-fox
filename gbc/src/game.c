@@ -22,8 +22,7 @@ static const int8_t bump2[9] = { 0, 2, 0, -2, 0, 2, 0, -2, 0 };
 #define BLOCK_FRAMES 8      // 130 ms
 
 fox_anim_t fa;   // Fang's animation
-enum { S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW };
-uint8_t game_state;   // S_* (exported for the tests)
+uint8_t game_state, skip_leave;   // S_* (exported for the tests)
 extern uint8_t dbg_ly[8];
 #define state game_state
 static uint8_t trans_t, trans_to, trans_spawn, dead_t, shake_n, queued;
@@ -202,6 +201,20 @@ void game_frame(uint8_t held, uint8_t pressed) {
   }
   for (i = 0; i < blk_n; i++) if (blk_anim_t[i] < BLOCK_FRAMES) blk_anim_t[i]++;
   if (shake_n && !(frame_count & 3)) shake_n--;
+  if (story_n && story_t[0]) story_t[0]--;   // js runStory: the queued beat's wait runs down in every mode
+  if (state == S_TALK || state == S_PERK) {   // the dialogue box or the perk pick; the world keeps drawing above it
+    if (state == S_TALK) dlg_frame(pressed); else perk_frame(pressed);
+    queued = 0;
+    if (state != S_TALK && state != S_PERK) cells_refresh();   // True Sight, Keen Eyes, Pathfinder...
+    hud_frame(); draw(); return;
+  }
+  if (state == S_SHOP) { shop_frame(pressed); queued = 0; hud_frame(); draw(); return; }
+  if (state == S_TITLE) {
+    uint8_t c = title_frame(pressed);
+    if (c == 1 && load_game()) { skip_leave = 1; transition(load_area, fox.y * COLS + fox.x); hud_say("Welcome back, Fang!"); show_objective(); }
+    else if (c) start_intro();   // a new game: Forest Home is fresh already
+    hud_frame(); draw(); return;
+  }
   if (state == S_OVERVIEW) {
     if (held & J_SELECT) return;
     state = S_PLAY; scroll_y = 0; LCDC_REG |= LCDCF_OBJON;
@@ -239,10 +252,11 @@ void game_frame(uint8_t held, uint8_t pressed) {
       // an action with no animation (asleep, tangled, a fish) still takes a step's time, so a held
       // direction can't fire twice in two frames
       if (acted && fa.type == A_NONE && state == S_PLAY) fox_anim(A_REST, 0, 0, 7);
+      if (pending_perks && state == S_PLAY && !busy()) offer_perks();   // js tick: perks earned outside a turn (Hoot's lessons)
+      run_story();   // then a story beat, once play is calm
       if (acted && state != S_TRANS) {   // the world on screen catches up with the rules
         uint8_t l0 = LY_REG; cells_refresh(); l0 = LY_REG >= l0 ? LY_REG - l0 : LY_REG + 154 - l0;
         if (l0 > dbg_refresh) dbg_refresh = l0;
-
       }
     }
   }

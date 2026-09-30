@@ -12,12 +12,12 @@ const REPORT = process.argv.includes('--report');
 const W = { SPRITES: {}, console };
 vm.createContext(W);
 const runFile = (file, label) => vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^(const|let) /gm, 'var '), W, { filename: label });
-for (const f of ['palette', 'font', 'sprites-terrain', 'sprites-props', 'sprites-chars', 'sprites-chars2', 'sprites-world2', 'data']) runFile(path.join(ROOT, 'js', f + '.js'), `js/${f}.js`);
+for (const f of ['palette', 'font', 'sprites-terrain', 'sprites-props', 'sprites-chars', 'sprites-chars2', 'sprites-world2', 'data', 'story']) runFile(path.join(ROOT, 'js', f + '.js'), `js/${f}.js`);
 const ART = path.join(GBC, 'art');   // GBC art: same format as js/sprites-*.js, replaces web sprites by name, may add PAL colours
 if (fs.existsSync(ART)) for (const f of fs.readdirSync(ART).filter(f => f.endsWith('.js')).sort()) runFile(path.join(ART, f), `gbc/art/${f}`);
 const OV = require(path.join(GBC, 'overrides.js'));
 for (const [k, v] of Object.entries(OV.areas || {})) Object.assign(W.AREAS[k], v);
-const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT, TRACKS, KITS } = W;
+const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT, TRACKS, KITS, SPEAKERS, KIT_INFO, SHOP } = W;
 const G = require('./lib/gfx')(PAL), SONG = require('./lib/song');
 
 const COLS = 14, ROWS = 8, CELLS_N = COLS * ROWS, GX = 80, GY = 54;   // web grid origin, used by the floor-variant hash
@@ -414,6 +414,8 @@ for (const key of AREA_KEYS) {
   o.typeAk = MT.map(ch => (used.includes(mKind(ch)) ? used.indexOf(mKind(ch)) : 0xFF));
   o.itemAk = IT.map(k => (used.includes(iKind(k)) ? used.indexOf(iKind(k)) : 0xFF));
   o.flags = (flat.includes('+') ? 1 : 0) | (A.slide ? 2 : 0) | (A.reform ? 4 : 0);
+  o.signs = Object.entries(A.signs || {}).map(([i, t]) => ({ cell: +i, text: t }));
+  o.kitAk = key === 'home' ? used.indexOf('kit') : 0xFF;   // rescued kits stand at home (js placeKits)
   // pressure: sprites on one row (plus Fang), sprites in all
   let rowObjs = 0, objs = kinds.fox.cols * kinds.fox.rows;
   const things = o.enemies.map(e => ({ cell: e.cell, K: kinds[mKind(MT[e.type])] })).concat(o.npcs.map(n => ({ cell: n.cell, K: kinds[used[n.kind]] })), o.items.map(t => ({ cell: t.cell, K: kinds[iKind(IT[t.code - 1])] })), o.blocks.map(c => ({ cell: c, K: kinds[blockKind(A)] })), [...flat].map((ch, i) => (ch === '*' ? { cell: i, K: kinds.flame } : null)).filter(Boolean));
@@ -445,6 +447,28 @@ const OVERVIEW_TILES = [
   box(0, 0, round(2.2), 1),                    // 9 friend: white dot (p7)
   box(0, 0, (x, y) => Math.abs(x - 3) + Math.abs(y - 3) <= 1, 3),   // 10 item: small yellow diamond (p7)
 ];
+// the dialogue box and menus (window layer): a frame and the "more" arrow, after the overview tiles
+const frameTile = (top, bottom, left, right) => { const t = new Array(64).fill(0); for (let i = 0; i < 8; i++) { if (top) t[3 * 8 + i] = 2; if (bottom) t[4 * 8 + i] = 2; if (left) t[i * 8 + 3] = 2; if (right) t[i * 8 + 4] = 2; }
+  if (top || bottom) for (let i = 0; i < 8; i++) { if (left && i < 3) t[(top ? 3 : 4) * 8 + i] = 0; if (right && i > 4) t[(top ? 3 : 4) * 8 + i] = 0; }
+  if (left || right) for (let i = 0; i < 8; i++) { if (top && i < 4) t[i * 8 + (left ? 3 : 4)] = 0; if (bottom && i > 3) t[i * 8 + (left ? 3 : 4)] = 0; }
+  return t; };
+const DLG_TILES = [frameTile(1, 0, 1, 0), frameTile(1, 0, 0, 0), frameTile(1, 0, 0, 1), frameTile(0, 0, 1, 0), frameTile(0, 0, 0, 1), frameTile(0, 1, 1, 0), frameTile(0, 1, 0, 0), frameTile(0, 1, 0, 1),
+  (() => { const t = new Array(64).fill(0); [[2, 2, 6], [3, 3, 5], [4, 4, 4]].forEach(([y, a, b]) => { for (let x = a; x <= b; x++) t[y * 8 + x] = 3; }); return t; })()];   // TL T TR L R BL B BR, arrow
+// portraits: each speaker's sprite in a 32x32 box (16 px sprites doubled, their top half when taller),
+// two palettes of 3 colours over the box's background (BG palettes 5 and 6 while someone talks)
+const SPEAKER_IDS = Object.keys(SPEAKERS);
+const portraitOf = {}, portraits = [];
+for (const id of SPEAKER_IDS) {
+  const name = SPEAKERS[id].spr; if (!name) { portraitOf[id] = 0xFF; continue; }
+  const have = portraits.findIndex(p => p.spr === name); if (have >= 0) { portraitOf[id] = have; continue; }
+  const s = spr(name), img = new Array(1024).fill(null), sc = s.w <= 16 ? 2 : 1;
+  const h = Math.min(s.h, 32 / sc), dx = Math.round(16 - s.w * sc / 2), dy = 32 - h * sc;
+  for (let y = 0; y < h; y++) for (let x = 0; x < s.w; x++) { const c = s.rows[y][x]; if (c === '.' || !PAL[c]) continue; for (let a = 0; a < sc; a++) for (let b = 0; b < sc; b++) { const X = dx + x * sc + b, Y = dy + y * sc + a; if (X >= 0 && X < 32 && Y >= 0 && Y < 32) img[Y * 32 + X] = c; } }
+  const tiles = []; for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) tiles.push(G.reduceTile(cut(img, 32, tx, ty), 3));
+  const pals = G.solvePalettes(tiles, 2, 3), palOf = [], idx = [];
+  for (const t of tiles) { const b = G.bestPalette(t, pals, 1); palOf.push(b.pal); idx.push(b.idx); }
+  portraitOf[id] = portraits.length; portraits.push({ spr: name, pals, palOf, idx });
+}
 const glyphs = [];
 for (let c = 32; c < 96; c++) { const g = FONT[String.fromCharCode(c)] || FONT['?']; const rows = [0, 0, 0, 0, 0]; for (let k = 0; k < g.px.length; k += 2) rows[g.px[k + 1]] |= 0x80 >> g.px[k]; glyphs.push([g.w, ...rows]); }
 
@@ -485,6 +509,18 @@ for (const [b, o] of Object.entries(biomeOut)) {
     `static const anim_seg_t segs[] = { ${segs.join(', ') || '{ 0 }'} };\nstatic const uint8_t anim[] = {\n${hex(anim.length ? anim : [0])}\n};\n` +
     `const biome_t biome_${b} = { ${o.order.length}, tiles, pal, ${segs.length}, segs, anim };\n`);
 }
+portraits.forEach((P, n) => {
+  const pal = []; for (const p of P.pals.concat([[], []]).slice(0, 2)) for (let c = 0; c < 4; c++) pal.push(G.to555(c ? p[c - 1] || '1' : '1'));   // colour 0: the box
+  write(`portrait_${n}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(portrait_${n})\n// ${P.spr}\n` +
+    `static const uint8_t tiles[] = {\n${hex(P.idx.flatMap(G.enc2bpp))}\n};\nstatic const uint8_t pal_of[] = { ${P.palOf.join(', ')} };\n` +
+    `static const palette_color_t pal[] = {\n${hex16(pal)}\n};\nconst portrait_t portrait_${n} = { tiles, pal_of, pal };\n`);
+});
+// the menus' words (dialog.c includes this): speakers, perks, Rudy's wares
+write('ui.inc', `static const char * const speaker_name[SPEAKER_COUNT] = { ${SPEAKER_IDS.map(id => cstr(SPEAKERS[id].name)).join(', ')} };\n` +
+  `static const char * const ui_perk_name[PERK_COUNT] = { ${PERK_KEYS.map(k => cstr(W.PERKS[k].name)).join(', ')} };\n` +
+  `static const char * const perk_desc[PERK_COUNT] = {\n${PERK_KEYS.map(k => '  ' + cstr(W.PERKS[k].desc)).join(',\n')}\n};\n` +
+  `static const char * const perk_tree[PERK_COUNT] = { ${PERK_KEYS.map(k => cstr(W.PERKS[k].tree)).join(', ')} };\n`);
+write('shop.inc', `// Rudy's wares (js/data.js SHOP): included by dialog.c and story.c\nstatic const shop_t shop[SHOP_COUNT] = {\n${SHOP.map(s => `  { ${s.cost}, ${s.once ? 1 : 0}, ${JSON.stringify(s.name)}, ${JSON.stringify(s.desc)} }`).join(',\n')}\n};\n`);
 for (const K of Object.values(kinds)) {
   write(`kind_${K.name}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(kind_${K.name})\n` +
     `static const uint8_t tiles[] = {\n${hex(K.tiles.flatMap(G.enc2bpp))}\n};\nstatic const uint8_t pal_of[] = { ${K.palOf.join(', ')} };\n` +
@@ -501,11 +537,12 @@ AREA_KEYS.forEach(k => {
     list('enemies', 'thing_t', o.enemies, e => `  { ${e.type}, ${e.cell}, 0 }`) +
     list('npcs', 'thing_t', o.npcs, n => `  { ${n.id}, ${n.cell}, ${n.kind} }`) +
     list('items', 'thing_t', o.items, t => `  { ${t.code}, ${t.cell}, ${t.relic} }`) +
+    list('signs', 'sign_t', o.signs, g => `  { ${g.cell}, ${JSON.stringify(g.text)} }`) +
     list('kinds', 'area_kind_t', o.kinds, a => `  { ${a.kind}, ${a.bank}, ${a.tile}, ${a.pal} }`) +
     `static const uint8_t type_ak[] = { ${o.typeAk.join(', ')} };\nstatic const uint8_t item_ak[] = { ${o.itemAk.join(', ')} };\n` +
     `static const palette_color_t obj_pal[] = {\n${hex16(o.objPal)}\n};\n` +
     `const area_t area_${c} = { ${BIOME_KEYS.indexOf(A.biome)}, ${TRACK_KEYS.indexOf(A.music)}, ${spawnOf(A)}, ${o.flags}, ${A.brazierTime || 0}, ${A.reform || 0}, ${(A.crumbleTo || '~').charCodeAt(0)}, cells, cell_recs, metas,\n` +
-    `  ${o.dyn.length}, dyn, ${o.cond.length}, cond, ${o.blocks.length}, blocks, ${o.blockAk}, ${o.flameAk}, ${o.doors.length}, doors, ${o.enemies.length}, enemies, ${o.npcs.length}, npcs, ${o.items.length}, items, ${o.kinds.length}, kinds, type_ak, item_ak, obj_pal, ${cstr(A.title)} };\n`);
+    `  ${o.dyn.length}, dyn, ${o.cond.length}, cond, ${o.blocks.length}, blocks, ${o.blockAk}, ${o.flameAk}, ${o.doors.length}, doors, ${o.enemies.length}, enemies, ${o.npcs.length}, npcs, ${o.items.length}, items, ${o.signs.length}, signs, ${o.kitAk}, ${o.kinds.length}, kinds, type_ak, item_ak, obj_pal, ${cstr(A.title)} };\n`);
 });
 const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js') && f !== 'sfx.js').map(f => f.slice(0, -3));
 for (const s of songs) emit(`song_${s}.c`, SONG.compile(s, require(path.join(GBC, 'music', s + '.js'))));
@@ -532,7 +569,9 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `#define AREA_COUNT ${AREA_KEYS.length}\n#define KIND_COUNT ${KIND_NAMES.length}\n#define TYPE_COUNT ${MT.length}\n#define ITEM_COUNT ${IT.length}\n#define PERK_COUNT ${PERK_KEYS.length}\n#define FLAG_COUNT ${FLAGS.length}\n#define RELIC_COUNT ${relicCount}\n` +
   `#define SFX_COUNT ${SFX_NAMES.length}\n#define MAX_ENEMIES ${MAX_ENEMIES}\n#define MAX_ITEMS ${MAX_ITEMS}\n` +
   `#define COLS ${COLS}\n#define ROWS ${ROWS}\n#define CELLS ${COLS * ROWS}\n#define AREA_W 28   // tiles\n#define AREA_H 16\n` +
-  `#define UI_TILES ${UI_TILES.length}\n#define OVERVIEW_TILES ${OVERVIEW_TILES.length}\n#define KIND_FOX ${kinds.fox.id}\n` +
+  `#define UI_TILES ${UI_TILES.length}\n#define OVERVIEW_TILES ${OVERVIEW_TILES.length}\n#define DLG_TILES ${DLG_TILES.length}\n#define KIND_FOX ${kinds.fox.id}\n` +
+  `#define SPEAKER_COUNT ${SPEAKER_IDS.length}\n#define PORTRAIT_COUNT ${portraits.length}\n#define SHOP_COUNT ${SHOP.length}\n` + defs('SP_', SPEAKER_IDS) + defs('SHOP_', SHOP.map(s => s.id)) + defs('AR_', AREA_KEYS) +
+  `static const uint8_t kit_spot[5] = { ${AREAS.home.kitSpots.join(', ')} };   // where rescued kits stand at home\n` +
   Object.entries(KF).map(([k, v]) => `#define KF_${k} ${v}\n`).join('') + Object.entries(MF).map(([k, v]) => `#define MF_${k} ${v}u\n`).join('') +
   `#define CF_SOLID 1\n#define CF_VOID 2\n#define CF_DOOR 4\n#define CF_WATER 8\n#define AF_PLATES 1\n#define AF_SLIDE 2\n#define AF_REFORM 4\n` +
   defs('LK_', LOOKS) + `#define MAX_CELL_LOOKS ${MAX_CELL_LOOKS}\n#define ANIMATORS ${ANIM_NAMES.length}\nstatic const uint8_t anim_frames[ANIMATORS] = { ${ANIM_FRAMES.join(', ')} };   // frames per animation step\n` +
@@ -547,9 +586,13 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `typedef struct { uint8_t cell, to, spawn, req, when; const char *name; } door_t;\n` +
   `typedef struct { uint8_t what, cell, extra; } thing_t;              // enemy: type; npc: id, area kind; item: code, relic id\n` +
   `typedef struct { uint8_t kind, bank, tile, pal; } area_kind_t;    // where this kind's sprite tiles and palettes go\n` +
+  `typedef struct { uint8_t cell; const char *text; } sign_t;\n` +
+  `typedef struct { uint8_t cost, once; const char *name, *desc; } shop_t;\n` +
+  `typedef struct { const uint8_t *tiles, *pal_of; const palette_color_t *pal; } portrait_t;   // 16 tiles, the palette (0/1) of each, 2 palettes x 4\n` +
   `typedef struct { uint8_t biome, music, spawn, flags, brazier_time, reform, crumble_to; const uint8_t *cells; const cell_rec_t *cell_recs; const uint8_t *metas;\n` +
   `                 uint8_t dyn_n; const uint8_t *dyn; uint8_t cond_n; const uint8_t *cond; uint8_t block_n; const uint8_t *blocks; uint8_t block_ak, flame_ak;   // metas: 4 tiles then 4 attributes each; dyn: cells with more than one look; cond: the ones that change without their tile changing\n` +
   `                 uint8_t door_n; const door_t *doors; uint8_t enemy_n; const thing_t *enemies; uint8_t npc_n; const thing_t *npcs; uint8_t item_n; const thing_t *items;\n` +
+  `                 uint8_t sign_n; const sign_t *signs; uint8_t kit_ak;   // kit_ak: home's kind for rescued kits\n` +
   `                 uint8_t kind_n; const area_kind_t *kinds; const uint8_t *type_ak, *item_ak; const palette_color_t *obj_pal; const char *title; } area_t;\n` +
   `typedef struct { uint16_t hp, xp, flags; uint8_t atk, interval, steps, poison, healer, summon, spawn_every, trail, phases, boss_flag, drop[2]; const char *name; } monster_t;\n` +
   `typedef struct { uint8_t ember; const char *name; } item_t;\n` +
@@ -558,7 +601,8 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `// each returns the ROM bank that holds *out and everything it points to\nuint8_t area_ref(uint8_t a, const area_t **out);\nuint8_t biome_ref(uint8_t b, const biome_t **out);\nuint8_t kind_ref(uint8_t k, const kind_t **out);\n\n` +
   `extern const sfx_t sfx_table[SFX_COUNT];\n` +
   `extern const uint8_t look_of[128], look_tall[${LOOKS.length}];   // a tile's look when it never changes (0xFF: it does); looks that reach into the cell above\n` +
-  `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\nextern const uint8_t ui_tiles[UI_TILES * 16], overview_tiles[OVERVIEW_TILES * 16];\nextern const palette_color_t ui_pal[12];   // BG palettes 5 (overview), 6 (icons) and 7 (text)\nextern const uint8_t font[64 * 6];        // ' ' to '_': width, then 5 rows\n\n#endif\n`);
+  `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\nextern const uint8_t ui_tiles[UI_TILES * 16], overview_tiles[OVERVIEW_TILES * 16], dlg_tiles[DLG_TILES * 16];\n` +
+  `extern const uint8_t speaker_portrait[SPEAKER_COUNT];   // 0xFF: the narrator, no portrait\nuint8_t portrait_ref(uint8_t p, const portrait_t **out);\nextern const palette_color_t ui_pal[12];   // BG palettes 5 (overview), 6 (icons) and 7 (text)\nextern const uint8_t font[64 * 6];        // ' ' to '_': width, then 5 rows\n\n#endif\n`);
 write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
   usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
@@ -569,6 +613,10 @@ write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   `const uint8_t cell_row[CELLS] = {\n${hex([...Array(COLS * ROWS).keys()].map(i => (i / COLS) | 0), 14)}\n};\n` +
   `const uint8_t ui_tiles[] = {\n${hex(UI_TILES.flatMap(G.enc2bpp))}\n};\n` +
   `const uint8_t overview_tiles[] = {\n${hex(OVERVIEW_TILES.flatMap(G.enc2bpp))}\n};\n` +
+  `const uint8_t dlg_tiles[] = {\n${hex(DLG_TILES.flatMap(G.enc2bpp))}\n};\n` +
+  `const uint8_t speaker_portrait[SPEAKER_COUNT] = { ${SPEAKER_IDS.map(id => portraitOf[id]).join(', ')} };\n` +
+  portraits.map((_, n) => `BANKREF_EXTERN(portrait_${n})\nextern const portrait_t portrait_${n};`).join('\n') + '\n' +
+  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) {\n  switch (p) {\n${portraits.map((_, n) => `    case ${n}: *out = &portrait_${n}; return BANK(portrait_${n});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
   `const palette_color_t ui_pal[12] = {\n${hex16(OVERVIEW_PAL.concat(HUD_PAL, TEXT_PAL).map(G.to555))}\n};\n` +
   `const uint8_t font[] = {\n${hex(glyphs.flat(), 12)}\n};\n\n` +
   `uint8_t area_ref(uint8_t a, const area_t **out) {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
@@ -608,6 +656,14 @@ if (REPORT || problems.length) {
 }
 const worst = Object.entries(biomeOut).sort((a, b) => b[1].order.length - a[1].order.length)[0];
 console.log(`${AREA_KEYS.length} areas, ${Object.keys(biomeOut).length} tilesets (largest ${worst[0]} ${worst[1].order.length}/${MAX_BG_TILES}), ${KIND_NAMES.length} sprite kinds, ${MT.length} monsters, ${IT.length} items, ${relicCount} relics, ${SFX_NAMES.length} sound effects, ${songs.length} song(s); previews in ${path.relative(ROOT, PREVIEW)}`);
+// the story's words: every line of js/story.js (but the credits, and lines built from numbers) must be in
+// src/story.c as written, or as overrides.js text says it on the GBC
+{
+  const js = fs.readFileSync(path.join(ROOT, 'js', 'story.js'), 'utf8').split('const CREDITS')[0].replace(/`[^`]*`/g, '``');
+  const c = fs.readFileSync(path.join(GBC, 'src', 'story.c'), 'utf8');
+  const lits = [...js.matchAll(/'((?:\\.|[^'\\])*)'|"((?:\\.|[^"\\])*)"/g)].map(m => (m[1] ?? m[2]).replace(/\\(.)/g, '$1')).filter(t => t.length >= 12 && t.includes(' '));
+  for (const t of lits) { const want = (OV.text || {})[t] ?? t; if (!c.includes(want.replace(/\\/g, '\\\\').replace(/"/g, '\\"'))) problems.push(`src/story.c is missing a line of js/story.js: "${want}"`); }
+}
 try { execFileSync('node', [path.join(ROOT, 'tools', 'validate.js'), '--gbc'], { stdio: 'pipe' }); }
 catch (e) { problems.push('tools/validate.js --gbc failed:\n' + String(e.stdout || e.message).trim()); }
 if (problems.length) { console.error('\n' + problems.join('\n')); process.exit(1); }

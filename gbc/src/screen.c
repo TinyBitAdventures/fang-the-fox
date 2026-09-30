@@ -62,6 +62,7 @@ void overview_draw(void) BANKED {
 }
 
 void game_start(void) BANKED {
+  ui_init();
   set_data((uint8_t *)(0x8800 + ((uint16_t)(OV_BASE - 128) << 4)), overview_tiles, OVERVIEW_TILES * 16);
   memcpy(bg_pal + 20, ui_pal, 4 * sizeof(palette_color_t));   // BG palette 5: the overview
   overview_fill();
@@ -73,10 +74,12 @@ void game_start(void) BANKED {
   hud_title(area_title); hud_stats();   // entered_area set the boss line
   cam_x = cam_want(fox.x << 4);
   pal_level = 16; pal_dirty = 1;
+  title_open(has_save());
 }
 
 void enter(uint8_t a, uint8_t spawn) BANKED {
-  area_leave();
+  uint8_t loading = skip_leave;
+  if (loading) skip_leave = 0; else area_leave();
   area_enter(a);
   if (spawn == NONE) spawn = area_spawn;
   fox.x = spawn % COLS; fox.y = spawn / COLS;
@@ -86,5 +89,6 @@ void enter(uint8_t a, uint8_t spawn) BANKED {
   hud_title(area_title); hud_stats();
   for (uint8_t s = 0; s < FLOATS; s++) fl_t[s] = 0;
   cam_x = cam_want(fox.x << 4);
+  if (!loading) save_game();   // js enterArea: if (!first) save()
 }
 

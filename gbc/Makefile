@@ -7,7 +7,7 @@ GBDK_HOME ?= $(HOME)/opt/gbdk
 LCC       = $(GBDK_HOME)/bin/lcc
 ROM       = build/fang.gbc
 LCCFLAGS  = -Wm-yC -Wl-yt0x1B -Wm-ya4 -Wl-j -autobank -Wb-ext=.rel -Wm-yn"FANGTHEFOX" -Isrc -Ilib/hUGEDriver -Wf--max-allocs-per-node50000 -Wf--opt-code-speed
-WEB       = ../js/data.js ../js/palette.js ../js/font.js $(wildcard ../js/sprites-*.js)
+WEB       = ../js/data.js ../js/story.js ../js/palette.js ../js/font.js $(wildcard ../js/sprites-*.js)
 
 SRC       = $(wildcard src/*.c)
 GEN_STAMP = build/gen.stamp
@@ -16,7 +16,7 @@ OBJDIR    = build/obj
 .PHONY: all run watch report clean
 all: $(ROM)
 
-$(GEN_STAMP): tools/build.js $(wildcard tools/lib/*.js) overrides.js $(WEB) $(wildcard art/*.js) $(wildcard music/*.js) ../tools/validate.js
+$(GEN_STAMP): tools/build.js $(wildcard tools/lib/*.js) overrides.js src/story.c $(WEB) $(wildcard art/*.js) $(wildcard music/*.js) ../tools/validate.js
 	@mkdir -p build
 	node tools/build.js
 	@touch $@

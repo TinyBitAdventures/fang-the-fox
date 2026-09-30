@@ -15,6 +15,7 @@ void check_puzzle(void) BANKED {
   for (i = 0; i < CELLS; i++) if (tiles[i] == '#') set_tile(i, '_');
   for (k = 0; k < brz_n; k++) lit_t[k] = LIT_FOREVER;   // stay lit forever once solved
   sfx_play(SFX_LEVEL); shake(3); hud_say("Rumble... the gate opens!");
+  save_game();
 }
 
 void light_brazier(uint8_t i, uint8_t x, uint8_t y) BANKED {

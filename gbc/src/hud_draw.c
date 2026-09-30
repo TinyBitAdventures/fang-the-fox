@@ -112,6 +112,7 @@ static void draw_line(void) {   // the latest message from hud_line_pos: one row
 }
 
 void hud_draw(uint8_t what) BANKED {
+  if (what == HD_RESET) { shown_hp = shown_fish = shown_gems = 0xFFFF; shown_atk = shown_fill = 0xFF; shown_lvl = 0; shown_two = 0xFF; return; }
   if (what == HD_LINE) draw_line();
   else if (what == HD_STATS) draw_stats();
   else draw_default();

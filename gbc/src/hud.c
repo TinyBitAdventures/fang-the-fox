@@ -11,8 +11,10 @@ static uint8_t msg_len;
 char hud_line[96], hud_title_text[NAME_LEN], hud_boss_name[NAME_LEN];
 uint8_t hud_boss_e = NONE, hud_two_line, hud_line_pos, hud_line_next;
 uint16_t hud_boss_max;
+uint8_t hud_hold;
 static uint8_t dirty;   // HD_* bits
 static uint16_t msg_t;
+static char goal[96];
 
 void m_clear(void) { msg_len = 0; msg[0] = 0; }
 void m_s(const char *s) { while (*s && msg_len < sizeof(msg) - 1) msg[msg_len++] = *s++; msg[msg_len] = 0; }
@@ -27,10 +29,18 @@ void hud_boss(uint8_t e, const char *name, uint16_t max) {
   dirty |= HD_DEFAULT;
 }
 
+void hud_goal(const char *s) {
+  strncpy(goal, s, sizeof(goal) - 1);
+  if (!msg_t && !(dirty & HD_LINE)) { hud_say(goal); goal[0] = 0; }
+}
+void hud_refresh(void) { hud_draw(HD_RESET); dirty |= HD_STATS | HD_DEFAULT; if (msg_t) dirty |= HD_LINE; }
+
 void hud_frame(void) {
+  if (hud_hold) return;
   if (dirty & HD_LINE) { dirty &= ~(HD_LINE | HD_DEFAULT); hud_draw(HD_LINE); msg_t = hud_line_next ? 180 : 300; }
   else if (msg_t && !--msg_t) {
     if (hud_line_next) { hud_line_pos = hud_line_next; hud_draw(HD_LINE); msg_t = hud_line_next ? 180 : 300; }   // a long message's next page
+    else if (goal[0]) { hud_say(goal); goal[0] = 0; }   // the quest line waited for the message
     else { dirty |= HD_DEFAULT; if (hud_two_line) { hud_two_line = 0; dirty |= HD_STATS; } }
   }
   if (dirty & HD_STATS) { dirty &= ~HD_STATS; hud_draw(HD_STATS); }

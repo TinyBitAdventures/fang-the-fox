@@ -115,6 +115,7 @@ void end_turn(void) BANKED {
   in_enemy_loop = 0;
   for (i = 0; i < en_n; i++) en_state[i] &= ~EN_NEW;
   if (tele_n && tele_fire_on == turn) breathe();
-  // autosave (phase 4) and the perk pick (phase 4) come here
+  if (turn % 5 == 0) save_game();
+  if (pending_perks && game_state == S_PLAY) offer_perks();
   hud_stats();
 }

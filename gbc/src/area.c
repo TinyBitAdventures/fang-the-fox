@@ -96,9 +96,11 @@ static void load_state(uint8_t a) {
 }
 
 void area_leave(void) BANKED {
-  area_state_t *r;
   uint8_t a = area_idx;
-  ENABLE_RAM; r = AREA_RECORD(a);
+  ENABLE_RAM; area_store(AREA_RECORD(a)); DISABLE_RAM;
+  visited[a >> 3] |= 1 << (a & 7);
+}
+void area_store(area_state_t *r) BANKED {
   memcpy(r->tiles, tiles, CELLS);
   r->solved = area_solved; r->boss_down = area_boss_down; r->entry = area_entry;
   r->en_n = en_n; r->item_n = item_n; r->temp_n = temp_n;
@@ -109,8 +111,6 @@ void area_leave(void) BANKED {
   memcpy(r->item_code, item_code, MAX_ITEMS); memcpy(r->item_cell, item_cell, MAX_ITEMS); memcpy(r->item_relic, item_relic, MAX_ITEMS);
   memcpy(r->temp_cell, temp_cell, MAX_TEMP); memcpy(r->temp_orig, temp_orig, MAX_TEMP); memcpy(r->temp_t, temp_t, MAX_TEMP);
   memcpy(r->blk_x, blk_x, MAX_BLOCKS); memcpy(r->blk_y, blk_y, MAX_BLOCKS); memcpy(r->lit_t, lit_t, MAX_BRAZIERS);
-  DISABLE_RAM;
-  visited[a >> 3] |= 1 << (a & 7);
 }
 
 void area_reset_world(void) BANKED { memset(visited, 0, sizeof(visited)); }
@@ -140,8 +140,11 @@ void area_enter(uint8_t a) BANKED {
   npc_n = 0;
   for (i = 0; i < A.npc_n && i < MAX_NPCS; i++) {
     uint8_t id = T[i].what;
-    if (id >= NPC_KIT1 && (kits_rescued & (1 << (id - NPC_KIT1)))) continue;   // rescued kits live at home (phase 4)
+    if (id >= NPC_KIT1 && (kits_rescued & (1 << (id - NPC_KIT1)))) continue;   // rescued kits live at home
     npc_id[npc_n] = id; npc_x[npc_n] = T[i].cell % COLS; npc_y[npc_n] = T[i].cell / COLS; npc_ak[npc_n++] = T[i].extra;
+  }
+  if (A.kit_ak != NONE) for (i = 0; i < 5 && npc_n < MAX_NPCS; i++) if (kits_rescued & (1 << i)) {   // js placeKits
+    npc_id[npc_n] = NPC_KIT1 + i; npc_x[npc_n] = kit_spot[i] % COLS; npc_y[npc_n] = kit_spot[i] / COLS; npc_ak[npc_n++] = A.kit_ak;
   }
   area_is_fresh = !VISITED(a);
   if (!area_is_fresh) load_state(a);

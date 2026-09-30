@@ -69,6 +69,8 @@ void area_enter(uint8_t a) BANKED;   // loads the area: from SRAM when visited b
 void area_leave(void) BANKED;        // writes the current area's state to SRAM
 void area_reset_world(void) BANKED;  // a new game: every area fresh
 void area_recover_world(void) BANKED;   // after a fall: regular foes in every other visited area heal (logic.c)
+typedef struct area_state_s area_state_t;
+void area_store(area_state_t *r) BANKED;   // the current area's state into a save RAM record (its bank mapped)
 extern uint8_t area_is_fresh;        // set by area_enter when the area came fresh from ROM: entered_area fills in the foes
 #include "sram.h"
 
@@ -123,6 +125,8 @@ void game_over(void);
 uint8_t busy(void);
 void game_start(void) BANKED;
 void game_frame(uint8_t held, uint8_t pressed);
+enum { S_PLAY, S_TRANS, S_DEAD, S_OVERVIEW, S_TALK, S_PERK, S_SHOP, S_TITLE };
+extern uint8_t game_state, skip_leave;   // skip_leave: the next area change doesn't write the area left (loading a save)
 
 // ---------- the rules: the port of js/game.js (logic.c, banked) ----------
 void new_game(void) BANKED;
@@ -153,6 +157,7 @@ extern const metasprite_t *kind_frames[MAX_KINDS][4];
 // x, y: the pivot in OAM coordinates (screen + 8, + 16)
 extern uint8_t spr_kind[MAX_DRAW], spr_frame[MAX_DRAW], spr_flip[MAX_DRAW], spr_x[MAX_DRAW], spr_y[MAX_DRAW];
 extern uint8_t spr_n, spr_row[9], spr_over;   // things listed, sprites per 16 px row, a row over 10
+extern uint8_t spr_clip;                      // OAM y: hardware sprites below it are hidden (0: none)
 void spr_clear(void);
 void spr_put(uint8_t kind, uint8_t frame, uint8_t flip, uint8_t prio, int16_t px, uint8_t py);   // px, py: bottom-centre on screen
 uint8_t spr_slot(uint8_t prio);   // the next list slot for a thing of this priority (0xFF when full)
@@ -160,6 +165,7 @@ void spr_flush(void);
 
 // ---------- text, messages and the HUD (text.c, hud.c) ----------
 uint8_t vwf_width(const char *s);
+uint8_t vwf_adv(char c);            // one character's width plus its gap
 uint8_t vwf_draw(uint8_t *buf, uint8_t tiles, uint8_t x, const char *s, uint8_t colour);
 extern char msg[96];
 void m_clear(void);                 // builds a message: m_clear(); m_s("Slim takes "); m_u(5); hud_say(msg);
@@ -172,6 +178,44 @@ void hud_say(const char *s);
 void hud_boss(uint8_t e, const char *name, uint16_t max);   // the boss's name and health on the lower row (e = NONE: no boss)
 void hud_frame(void);
 void hud_draw(uint8_t what) BANKED; // hud_frame's banked half
+extern uint8_t hud_hold;            // a dialogue or menu covers the HUD: draw nothing, keep what changed for later
+void hud_refresh(void);             // draw it all again (the window was used for something else)
+void hud_goal(const char *s);       // the quest line: after the message showing, or now
+
+// ---------- the dialogue box and menus (dialog.c, window layer) ----------
+extern char dlg_text[192];          // the line being shown (story.c fills it and dlg_who)
+extern uint8_t dlg_who, perk_choice[3], perk_choice_n;
+void dlg_open(void) BANKED;
+void dlg_frame(uint8_t pressed) BANKED;
+void perk_open(void) BANKED;
+void perk_frame(uint8_t pressed) BANKED;
+void shop_open(void) BANKED;
+void shop_frame(uint8_t pressed) BANKED;
+void shop_status(const char *s) BANKED;   // s in WRAM (msg)
+void title_open(uint8_t has_save) BANKED;
+uint8_t title_frame(uint8_t pressed) BANKED;
+void ui_init(void) BANKED;
+
+// ---------- the story (story.c: a port of js/story.js) and saving (save.c) ----------
+#define STORY_MAX 4
+enum { ST_NONE, ST_BOSS_DEFEATED, ST_HEARTH_AFTERMATH, ST_START_ENDING, ST_AFTER_CREDITS };
+extern uint8_t story_n, story_fn[STORY_MAX], story_arg[STORY_MAX];   // the web's G.story: beats waiting for normal play
+extern uint16_t story_t[STORY_MAX];                                  // frames each still waits
+uint8_t story_line(uint8_t i) BANKED;
+void story_after(void) BANKED;
+void talk_to(uint8_t npc) BANKED;
+void read_sign(uint8_t cell) BANKED;
+void show_objective(void) BANKED;
+void start_intro(void) BANKED;
+void queue_story(uint8_t fn, uint8_t arg, uint16_t frames) BANKED;
+void run_story(void) BANKED;
+void offer_perks(void) BANKED;
+void choose_perk(uint8_t k) BANKED;
+void buy(uint8_t i) BANKED;
+extern uint8_t load_area;
+uint8_t has_save(void) BANKED;
+uint8_t load_game(void) BANKED;
+void save_game(void) BANKED;
 
 // ---------- sound (audio.c, sfx.c) ----------
 void music_start(void);

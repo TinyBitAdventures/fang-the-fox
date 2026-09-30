@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-The start of the port: all 24 areas with the web game's maps and doors, turn-based combat with every monster's rules, items, levels, puzzles and a world that changes as you play, a HUD, sound effects and music, playable in the browser as it's built.
+The start of the port: all 24 areas with the web game's maps and doors, turn-based combat with every monster's rules, items, levels, puzzles and a world that changes as you play, the story with every character, the shop, perk picks and saving, a HUD, sound effects and music, playable in the browser as it's built.
 
 ### The ROM
 - Color-only ROM (MBC5, 32 KB battery-backed save RAM, double speed) built with GBDK-2020 4.5.0.
@@ -27,6 +27,14 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - Water, lava, the Void and portals animate (their tiles step through 3 frames at the web game's speeds); a lit brazier's flame is a small animated sprite over the cold brazier, so it keeps its colours on any floor.
 - Steam vents puff every third turn, fog hides foes and items more than a step away (Keen Eyes and True Sight clear it), and a Treant that hasn't woken is drawn in the background as one of the trees until Fang bumps it or walks up to it.
 - Pushed blocks slide into place; the overview shows blocks and keeps hidden Treants and fogged things hidden.
+- A title screen: CONTINUE (when there's a save) and NEW GAME, with the version.
+- The story, ported from `js/story.js` (`story.c`): the opening, Grandma (the fish for the road, thanks and max health for each kit home, the charm for all five, the Hearth scene and what follows), Hoot (a lesson for every five relics, the Starlight Crest), Rudy (his greetings and his shop), Lumen (her light heals), the Fairy Queen (True Sight and gems), the five kits (rescued, sent home, chatting at home), the scene after each boss, and the ending (the credits come in phase 5). The quest line shows after the message on screen, where the web game shows its banner.
+- The dialogue box: the speaker's portrait (32x32, from their sprite) and name, text that types out at the web game's pace, a page turn for lines too long for one box, a blinking arrow when there's more. A or B shows the whole page, then moves on. Signs are read the same way.
+- Rudy's shop: six wares with prices, SOLD for the once-only ones, greyed out when Fang can't afford them, the chosen ware's description, and what just happened.
+- The perk pick: three perks with their trees and descriptions, offered at each level up and after Hoot's lessons, shuffled exactly as the web game shuffles them.
+- Story beats wait for calm play (never over a death, a door or a perk pick) and are saved with the game.
+- Saving to the cartridge: two slots that take turns (one cut short by the power leaves the other whole), each with the game, its story queue and the current area, checked by a checksum. The game saves every 5 turns, on entering an area and wherever the web game saves; CONTINUE brings it back.
+- Buttons are read at every VBlank, so a quick tap during a slow frame (a menu being drawn) still counts.
 
 ### Build
 - Sprites: every kind of thing that moves (Fang, 5 friends, the kits, 25 monsters and bosses) cut into 8x16 pieces with 3 colours each (bosses get 2 palettes), placed in VRAM per area with its palettes; `build/preview/sprites.png` shows them all.
@@ -35,6 +43,8 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - The game's tables come from `js/data.js`: 26 monsters with their rules as flags, 21 items, 15 perks, 29 story flags, 20 relics numbered across the world. Items share three sprite palettes; the one the relics use doubles as the effects palette.
 - The code is spread over ROM banks: bank 0 keeps what runs every frame, the rules and area loading live in switchable banks and read other banks through small bank-0 helpers.
 - `tools/build.js` draws each area's cells the way the web game does (floor variants, water, lava and void, tall walls, trees, gates and braziers hanging into the cell above), reduces every 8x8 tile to 4 colours and every biome to 5 palettes, and shares one tileset per biome (the largest, the woods, uses 144 of 256 tiles).
+- Portraits for every speaker (their sprite doubled, or its top half when taller, in two palettes), the dialogue box's tiles, every area's signs, where rescued kits stand at home, the shop's wares and the perks' descriptions.
+- The build checks that `src/story.c` has every line of `js/story.js` word for word; `overrides.js` lists the few that name the web game's keys.
 - Every look a cell can take in play (worked out from the monsters that leave trails, the blocks, the gates, crumbling paths and doors that appear) is drawn against every look of the cell below it, as metatiles per area; animated tiles come first in each tileset, in runs the ROM copies in one go.
 - Budget report (`make report`): sprites per row, total sprites and monster types per area, tiles per biome and how much of the art was recoloured (1-8% of pixels so far).
 - `overrides.js` holds every change from the web game; `../tools/validate.js --gbc` checks the maps with them merged in.
@@ -44,7 +54,7 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 
 ### Tests
 - `tools/bot/shots.py` captures every area from the ROM in PyBoy, checks its background matches the build's preview pixel for pixel, and reports how much of a frame the game's work takes (the busiest, Slime Pond, uses 59 of 154 scanlines).
-- `tools/bot/smoke.py`: 60 frames a second, walking, bumping, the camera, a door to the right area and cell, the overview, the music playing, beating the Goo King, Fire Spin lighting braziers and the gate redrawn open, a block pressing a plate, and a Treant hiding as a tree until it wakes.
-- Parity with the web game: `tools/parity.js` plays the web game headless with the ROM's random numbers, and `tools/bot/parity.py` plays the same run on the ROM and compares every step (area, turn, Fang's numbers, every foe's cell and health, items). `tools/bot/parity_suite.py` runs 18 scenarios chosen for the monsters' rules, the perks, falling and the puzzles (every cell's tile, the blocks and the lit braziers are compared too); all match step for step. The web side walks the shortest path toward foes, cold braziers, blocks and doors, and a scenario can open with a script (`fight,goto:30,right,...`). Runs stop where the two sides can't match yet: a boss summoning or a slim splitting (their random spots are shuffled differently).
+- `tools/bot/smoke.py`: 60 frames a second, walking, bumping, the camera, a door to the right area and cell, the overview, the music playing, beating the Goo King and the scene after it, Fire Spin lighting braziers and the gate redrawn open, a block pressing a plate, a Treant hiding as a tree until it wakes, Grandma's dialogue and gift, a sign, Rudy's shop, a perk pick, and a save that CONTINUE brings back after switching off.
+- Parity with the web game: `tools/parity.js` plays the web game headless with the ROM's random numbers, and `tools/bot/parity.py` plays the same run on the ROM and compares every step (area, turn, Fang's numbers, every foe's cell and health, items). `tools/bot/parity_suite.py` runs 22 scenarios chosen for the monsters' rules, the perks, falling, the puzzles and the characters; every cell's tile, the blocks, the lit braziers, flags, perks, kits and the random number generator's state are compared too, and all match step for step. Between steps both sides read dialogue through, pick the same perk and buy the same ware (the web side chooses and records it), and let story beats play. `TRACE_STEP=n` prints every random number the web side draws in step n and where. The web side walks the shortest path toward foes, cold braziers, blocks and doors, and a scenario can open with a script (`fight,goto:30,right,...`). Runs stop where the two sides can't match yet: a boss summoning or a slim splitting (their random spots are shuffled differently).
 - `tools/screenshot.js` drives the web player frame by frame with Playwright; steps can read and write the ROM's memory by symbol name.
 - `make` recompiles only the sources that changed (the generator rewrites only files whose content changed): a one-file change builds in seconds instead of minutes.

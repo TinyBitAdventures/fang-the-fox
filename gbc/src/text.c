@@ -9,6 +9,8 @@ static const uint8_t *glyph(char c) {
   return &font[(uint8_t)(c - 32) * 6];
 }
 
+uint8_t vwf_adv(char c) { return glyph(c)[0] + 1; }
+
 uint8_t vwf_width(const char *s) {
   uint8_t w = 0;
   while (*s) w += glyph(*s++)[0] + 1;

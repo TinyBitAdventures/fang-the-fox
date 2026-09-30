@@ -8,7 +8,7 @@
 #include "game.h"
 
 uint8_t spr_kind[MAX_DRAW], spr_frame[MAX_DRAW], spr_flip[MAX_DRAW], spr_x[MAX_DRAW], spr_y[MAX_DRAW];
-uint8_t spr_n, spr_row[9], spr_over;
+uint8_t spr_n, spr_row[9], spr_over, spr_clip;
 static uint8_t order[4][MAX_DRAW], count[4], rot2, rot3, oam;
 
 void spr_clear(void) {
@@ -60,4 +60,5 @@ void spr_flush(void) {
   for (i = 0, j = rot3; i < m; i++) { s = order[3][j]; emit(); if (++j == m) j = 0; }
   if (oam > 40) oam = 40;
   hide_sprites_range(oam, 40);
+  if (spr_clip) for (i = 0; i < oam; i++) if (shadow_OAM[i].y > spr_clip) shadow_OAM[i].y = 0;   // under the dialogue box or a menu
 }

@@ -1,7 +1,7 @@
 // One visited area's state in the cartridge's save RAM (banks 2-3), shared by area.c and logic.c.
 #ifndef FANG_SRAM_H
 #define FANG_SRAM_H
-typedef struct {
+struct area_state_s {
   uint8_t tiles[CELLS];
   uint8_t solved, boss_down, entry, en_n, item_n, temp_n;
   uint8_t en_type[MAX_ENEMIES], en_x[MAX_ENEMIES], en_y[MAX_ENEMIES], en_state[MAX_ENEMIES], en_frozen[MAX_ENEMIES],
@@ -11,7 +11,7 @@ typedef struct {
   uint8_t item_code[MAX_ITEMS], item_cell[MAX_ITEMS], item_relic[MAX_ITEMS];
   uint8_t temp_cell[MAX_TEMP], temp_orig[MAX_TEMP], temp_t[MAX_TEMP];
   uint8_t blk_x[MAX_BLOCKS], blk_y[MAX_BLOCKS], lit_t[MAX_BRAZIERS];
-} area_state_t;
+};
 #define PER_BANK (8192 / sizeof(area_state_t))
 #define SRAM_AREA_BANK 2
 #define VISITED(a) (visited[(a) >> 3] & (1 << ((a) & 7)))

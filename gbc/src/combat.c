@@ -166,10 +166,12 @@ static void kill_enemy(uint8_t e) {
     uint8_t here = tiles[idx(en_x[e], en_y[e])];
     uint8_t n = drop_spots(en_x[e], en_y[e], here != 'd' && here != 'D');
     for (uint8_t d = 0; d < 2 && m->drop[d]; d++) if (d < n) add_item(m->drop[d], idx(spot_x[d], spot_y[d]));
-    // the web game queues the boss's story scene or the ending here (phases 4 and 5)
+    if (m->flags & MF_FINAL) queue_story(ST_START_ENDING, 0, 84);   // 1400 ms
+    else queue_story(ST_BOSS_DEFEATED, en_type[e], 54);             // 900 ms
     m_clear(); m_s(m->name); m_s(" is defeated!"); hud_say(msg);
     boss_hud();
   }
+  save_game();
 }
 void gain_xp(uint16_t n) BANKED {
   fox.xp += n;

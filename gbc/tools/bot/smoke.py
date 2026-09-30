@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 # Smoke test: Fang walks, trees and the island's edge stop him, the camera follows, a door takes him
 # to the right area and cell, the music plays, SELECT shows the overview; the world on screen changes
-# with the rules (braziers and their gate, a block on a plate, a Treant hiding as a tree).
+# with the rules (braziers and their gate, a block on a plate, a Treant hiding as a tree); talking, a sign,
+# Rudy's shop, a perk pick, and a save that CONTINUE brings back.
 # usage: gbc/.venv/bin/python gbc/tools/bot/smoke.py
 import re, sys
 import numpy as np
-from rom import Rom, GBC
+from rom import Rom, GBC, S_PLAY, S_TALK, S_PERK, S_SHOP, S_TITLE
 
-LK = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define LK_(\w+) (\d+)', (GBC / 'src/gen/world.h').read_text())}
+WORLD = (GBC / 'src/gen/world.h').read_text()
+LK = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define LK_(\w+) (\d+)', WORLD)}
+SP = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define SP_(\w+) (\d+)', WORLD)}
+AR = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define AR_(\w+) (\d+)', WORLD)}
 
 fails = []
 def check(ok, what):
@@ -51,6 +55,8 @@ for _ in range(80):
 check(rom.u8('en_state', boss) & 1 and rom.u8('flags') & (1 << 6), 'the Goo King falls and the gooking flag is set')
 ember = [(rom.u8('item_cell', i) % 14, rom.u8('item_cell', i) // 14) for i in range(rom.u8('item_n')) if rom.u8('item_code', i) == 17]
 check(len(ember) == 1, 'the Forest Ember drops')
+seen = rom.settle_ui()   # a perk pick for the level he gained, then the story queue's scene
+check(SP['NARRATOR'] in seen, f'a moment later the narrator tells what happened (speakers {seen})')
 rom.poke('dbg_goto', 5); rom.tick(60)
 rom.poke('fox', 12, 8); rom.poke('fox', 5, 9); rom.tick(4)
 rom.tap('down', 60)
@@ -80,5 +86,40 @@ check(rom.u8('look_now', 32) == LK['CAMO'], 'a Treant that has not woken is draw
 rom.poke('fox', 3, 8); rom.poke('fox', 2, 9); rom.poke('fox', 99, 10); rom.tick(2)
 rom.tap('right', 20); rom.tick(10)
 check(rom.u8('look_now', 32) == LK['FLOOR'], 'bumping it wakes it: the tree is gone from the background')
+
+# talking: Grandma, a sign, Rudy's shop; a perk pick; saving and CONTINUE
+def text(): return bytes(rom.u8('dlg_text', i) for i in range(40)).split(b'\0')[0].decode('latin1')
+rom.poke('dbg_goto', AR['HOME'] + 1); rom.tick(60)
+rom.poke('en_n', 0); rom.poke('fox', 8, 8); rom.poke('fox', 0, 9); rom.tick(2)
+fish = rom.u8('fish')
+rom.tap('right', 20)
+check(rom.state() == S_TALK and rom.u8('dlg_who') == SP['GRANDMA'] and text().startswith('Fang! Oh good'), 'bumping into Grandma opens her dialogue')
+rom.skip_talk()
+check(rom.state() == S_PLAY and rom.u8('fish') == fish + 5 and rom.u8('flags') & 1, 'when she has said it all she gives Fang 5 fish')
+rom.poke('fox', 3, 8); rom.poke('fox', 1, 9); rom.tick(2); rom.tap('left', 20)
+check(rom.state() == S_TALK and rom.u8('dlg_who') == SP['SIGN'] and text().startswith("Fang's cottage"), 'bumping a sign reads it')
+rom.skip_talk()
+rom.poke('dbg_goto', AR['ELEMENTAL_PORTAL'] + 1); rom.tick(60)
+rom.poke('gems', 10); rom.poke('fox', 3, 8); rom.poke('fox', 5, 9); rom.tick(2)
+fish = rom.u8('fish')
+rom.tap('right', 20); rom.skip_talk()
+check(rom.state() == S_SHOP, "after Rudy's greeting his shop opens")
+rom.tap('a', 10)
+check(rom.u8('gems') == 9 and rom.u8('fish') == fish + 5, 'A buys the first ware: 5 fish for a gem')
+rom.tap('b', 10)
+check(rom.state() == S_PLAY, 'B leaves the shop')
+rom.poke('pending_perks', 1); rom.tick(10)
+check(rom.state() == S_PERK and rom.u8('perk_choice_n') == 3, 'a perk earned outside a turn is offered once Fang stands still: three perks')
+rom.tap('down', 6); pick = rom.u8('perk_choice', 1); rom.tap('a', 10)
+perks = rom.u8('perks') | rom.u8('perks', 1) << 8
+check(rom.state() == S_PLAY and perks & (1 << pick) and not rom.u8('pending_perks'), 'down and A learn the second one')
+rom.poke('dbg_goto', AR['LAKE_TOWER'] + 1); rom.tick(60)   # entering an area saves
+saved = (rom.area(), rom.fox(), rom.u8('fish'), rom.u8('gems'), perks)
+ram = rom.stop(keep=True)
+rom = Rom(start=False, ram=ram)
+check(rom.state() == S_TITLE, 'after switching off, the title offers CONTINUE')
+rom.tap('a', 60)
+now = (rom.area(), rom.fox(), rom.u8('fish'), rom.u8('gems'), rom.u8('perks') | rom.u8('perks', 1) << 8)
+check(rom.state() == S_PLAY and now == saved, f'CONTINUE puts Fang back where he was, with his fish, gems and perks {now}')
 rom.stop()
 if fails: sys.exit(1)

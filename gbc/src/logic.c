@@ -2,7 +2,7 @@
 // same order and drawing random numbers at the same moments, so tools/parity.js can play both
 // versions side by side. This part: the player's actions, items, hazards, areas, death, a new game.
 // combat.c has attacks, damage and bosses; turn.c the enemies' turn. Not here yet: puzzles and tile
-// talking, signs, the shop and perk picks (phase 4), the ending (phase 5). puzzle.c has the puzzles.
+// puzzle.c has the puzzles; story.c the talking, signs, the shop, perk picks and the story.
 #pragma bank 255
 #include "rules.h"
 
@@ -142,13 +142,14 @@ void do_action(int8_t dx, int8_t dy) BANKED {
   if (!in_grid(nx, ny)) { bump("Ouch! The edge of the island."); return; }
   uint8_t e = enemy_at(nx, ny);
   if (e) { attack(e - 1, dx, dy); end_turn(); return; }
-  if (npc_at(nx, ny)) { bump(0); return; }   // talking comes in phase 4
+  uint8_t n = npc_at(nx, ny);
+  if (n) { bump(0); talk_to(n - 1); return; }
   uint8_t i = idx(nx, ny), ch = tiles[i];
   if (ch == 'd' || ch == 'D') { try_door(i, nx, ny); return; }
-  if (ch == '?') { bump(0); return; }   // signs come in phase 4
+  if (ch == '?') { bump(0); read_sign(i); return; }
   if (ch == '*') { light_brazier(i, nx, ny); return; }
   if (ch == '%') {
-    if (keys) { keys--; set_tile(i, '_'); sfx_play(SFX_DOOR); hud_say("The Ancient Key turns. The gate swings open."); end_turn(); return; }
+    if (keys) { keys--; set_tile(i, '_'); sfx_play(SFX_DOOR); hud_say("The Ancient Key turns. The gate swings open."); save_game(); end_turn(); return; }
     bump("A locked gate. It needs an Ancient Key."); sfx_play(SFX_LOCKED); return;
   }
   if (ch == '#') { bump(has_plates() ? "A sealed gate. Something here must be weighed down..." : "A sealed gate. The braziers here are cold..."); sfx_play(SFX_LOCKED); return; }
@@ -158,7 +159,7 @@ void do_action(int8_t dx, int8_t dy) BANKED {
   if (is_solid(ch)) { bump(ch == 'w' ? "Fang would rather not swim." : 0); return; }
   uint8_t it = item_at(i);
   if (it && item_code[it - 1] == IT_CHEST_LOCKED) {
-    if (keys) { keys--; item_code[it - 1] = 0; sfx_play(SFX_GEM); gems += 3; gain_xp(60); hud_say("Unlocked the chest! +3 gems."); end_turn(); return; }
+    if (keys) { keys--; item_code[it - 1] = 0; sfx_play(SFX_GEM); gems += 3; gain_xp(60); hud_say("Unlocked the chest! +3 gems."); save_game(); end_turn(); return; }
     bump("A locked chest. It needs an Ancient Key."); sfx_play(SFX_LOCKED); return;
   }
   uint8_t from = idx(fox.x, fox.y);
@@ -223,7 +224,7 @@ void respawn(void) BANKED {
 void new_game(void) BANKED {
   memset(&fox, 0, sizeof(fox));
   fox.hp = 100; fox.max_hp = 100; fox.atk = 5; fox.lvl = 1; fox.next = 100; fox.dir = 1;
-  turn = kills = perks = 0; fish = keys = gems = embers = pending_perks = relic_n = kits_rescued = 0;
+  turn = kills = perks = 0; fish = keys = gems = embers = pending_perks = relic_n = kits_rescued = 0; story_n = 0;
   memset(relics, 0, sizeof(relics)); memset(flags, 0, sizeof(flags)); memset(visited, 0, sizeof(visited));
   b_mushroom = b_poison = b_ward = b_barrier = b_haste = b_sleep = b_rooted = b_spin_cd = b_second_wind = b_true_sight = 0;
   tele_n = 0;

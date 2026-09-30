@@ -27,6 +27,10 @@ SCENARIOS = [   # steps, seed, area, perks, flags, level, what it covers[, a scr
   (600, 21, 'lava_bridges!', 'fireSpin', 'gooking,guardian,colossus,cloak', 9, 'timed braziers guttering out, paths crumbling into lava, vents'),
   (600, 19, 'ice_caves', '', 'gooking,guardian', 7, 'sliding across the ice to the next wall'),
   (600, 20, 'void_heart!', 'fireSpin', 'gooking,guardian,colossus,dragon,rotheart,hearth', 12, 'braziers with no gate, void wisps'),
+  (300, 22, 'elemental_portal!', '', 'gooking,guardian', 8, "Rudy's greetings and shop, Lumen's light"),
+  (300, 23, 'lake_tower!', '', 'gooking', 4, 'Hoot, and the goo seal gone'),
+  (300, 24, 'slime_pond!', '', '', 2, 'Pip the kit, rescued and sent home'),
+  (400, 25, 'fairy_glade!', '', 'gooking,guardian,colossus,dragon,scale', 10, 'the Fairy Queen, True Sight and fog'),
 ]
 failed = 0
 for steps, seed, area, perks, flags, level, what, *script in SCENARIOS:
