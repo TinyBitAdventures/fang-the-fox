@@ -63,7 +63,6 @@ void overview_draw(void) BANKED {
 
 void game_start(void) BANKED {
   ui_init();
-  set_data((uint8_t *)(0x8800 + ((uint16_t)(OV_BASE - 128) << 4)), overview_tiles, OVERVIEW_TILES * 16);
   memcpy(bg_pal + 20, ui_pal, 4 * sizeof(palette_color_t));   // BG palette 5: the overview
   overview_fill();
   new_game();

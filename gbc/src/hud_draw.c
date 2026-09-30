@@ -121,6 +121,6 @@ void hud_draw(uint8_t what) BANKED {
 void hud_init(void) BANKED {
   memcpy(bg_pal + 24, ui_pal + 4, 8 * sizeof(palette_color_t));   // BG palettes 6 and 7
   VBK_REG = VBK_TILES;
-  vram_tiles(T_BLANK, ui_tiles, UI_TILES);
+  ui_load_tiles();   // the HUD's, the overview's and the dialogue box's
   move_win(7, 128);
 }

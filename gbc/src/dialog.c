@@ -302,4 +302,4 @@ uint8_t title_frame(uint8_t pressed) BANKED {   // 0 until chosen, then 1 contin
   return t_save && !m_sel ? 1 : 2;
 }
 
-void ui_init(void) BANKED { set_data((uint8_t *)(0x8800 + ((204 - 128) << 4)), dlg_tiles, DLG_TILES * 16); }
+void ui_init(void) BANKED { }   // the box's tiles come with the HUD's (ui_load_tiles)

@@ -565,7 +565,7 @@ write('tables.inc', `// monsters by type, items by code (1-based), perk names\n`
 write('sfx_data.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   sfxNotes.map((notes, i) => `static const sfx_note_t sfx_${i}[] = {\n${notes.map(n => `  { ${n.at}, ${n.ch}, ${n.frames}, ${n.env}, ${n.arg}, ${n.p0}, ${n.p1} }`).join(',\n')}\n};`).join('\n') + '\n' +
   `const sfx_t sfx_table[SFX_COUNT] = { ${sfxNotes.map((notes, i) => `{ ${notes.length}, ${notes.reduce((a, n) => Math.max(a, n.at + n.frames), 0)}, sfx_${i} }`).join(', ')} };\n`);
-write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h>\n#include <gb/cgb.h>\n\n` +
+write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h>\n#include <gb/gb.h>\n#include <gb/cgb.h>\n\n` +
   `#define AREA_COUNT ${AREA_KEYS.length}\n#define KIND_COUNT ${KIND_NAMES.length}\n#define TYPE_COUNT ${MT.length}\n#define ITEM_COUNT ${IT.length}\n#define PERK_COUNT ${PERK_KEYS.length}\n#define FLAG_COUNT ${FLAGS.length}\n#define RELIC_COUNT ${relicCount}\n` +
   `#define SFX_COUNT ${SFX_NAMES.length}\n#define MAX_ENEMIES ${MAX_ENEMIES}\n#define MAX_ITEMS ${MAX_ITEMS}\n` +
   `#define COLS ${COLS}\n#define ROWS ${ROWS}\n#define CELLS ${COLS * ROWS}\n#define AREA_W 28   // tiles\n#define AREA_H 16\n` +
@@ -598,30 +598,35 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `typedef struct { uint8_t ember; const char *name; } item_t;\n` +
   `typedef struct { uint8_t at, ch, frames, env, arg; uint16_t p0, p1; } sfx_note_t;   // ch 2: arg = duty; ch 4: arg = NR43\n` +
   `typedef struct { uint8_t n, length; const sfx_note_t *notes; } sfx_t;\n\n` +
-  `// each returns the ROM bank that holds *out and everything it points to\nuint8_t area_ref(uint8_t a, const area_t **out);\nuint8_t biome_ref(uint8_t b, const biome_t **out);\nuint8_t kind_ref(uint8_t k, const kind_t **out);\n\n` +
+  `// each returns the ROM bank that holds *out and everything it points to (world_far.c, banked)\nuint8_t area_ref(uint8_t a, const area_t **out) BANKED;\nuint8_t biome_ref(uint8_t b, const biome_t **out) BANKED;\nuint8_t kind_ref(uint8_t k, const kind_t **out) BANKED;\n` +
+  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) BANKED;\nvoid ui_load_tiles(void) BANKED;   // the HUD's, the overview's and the dialogue box's tiles into 0x8800 (bank 0)\n\n` +
   `extern const sfx_t sfx_table[SFX_COUNT];\n` +
   `extern const uint8_t look_of[128], look_tall[${LOOKS.length}];   // a tile's look when it never changes (0xFF: it does); looks that reach into the cell above\n` +
-  `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\nextern const uint8_t ui_tiles[UI_TILES * 16], overview_tiles[OVERVIEW_TILES * 16], dlg_tiles[DLG_TILES * 16];\n` +
-  `extern const uint8_t speaker_portrait[SPEAKER_COUNT];   // 0xFF: the narrator, no portrait\nuint8_t portrait_ref(uint8_t p, const portrait_t **out);\nextern const palette_color_t ui_pal[12];   // BG palettes 5 (overview), 6 (icons) and 7 (text)\nextern const uint8_t font[64 * 6];        // ' ' to '_': width, then 5 rows\n\n#endif\n`);
+  `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\n` +
+  `extern const uint8_t speaker_portrait[SPEAKER_COUNT];   // 0xFF: the narrator, no portrait\nextern const palette_color_t ui_pal[12];   // BG palettes 5 (overview), 6 (icons) and 7 (text)\nextern const uint8_t font[64 * 6];        // ' ' to '_': width, then 5 rows\n\n#endif\n`);
+// bank 0: what runs every frame or from bank-0 code; world_far.c (banked): lookups and load-once tiles
 write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
-  AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
-  usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
-  KIND_NAMES.map(k => `BANKREF_EXTERN(kind_${k})\nextern const kind_t kind_${k};`).join('\n') + '\n\n' +
   `const uint8_t ch_flags[128] = {\n${hex(chFlags)}\n};\n` +
   `const uint8_t look_of[128] = {\n${hex(lookOf)}\n};\nconst uint8_t look_tall[${LOOKS.length}] = { ${lookTall.join(', ')} };\n` +
   `const uint8_t cell_col[CELLS] = {\n${hex([...Array(COLS * ROWS).keys()].map(i => i % COLS), 14)}\n};\n` +
   `const uint8_t cell_row[CELLS] = {\n${hex([...Array(COLS * ROWS).keys()].map(i => (i / COLS) | 0), 14)}\n};\n` +
-  `const uint8_t ui_tiles[] = {\n${hex(UI_TILES.flatMap(G.enc2bpp))}\n};\n` +
-  `const uint8_t overview_tiles[] = {\n${hex(OVERVIEW_TILES.flatMap(G.enc2bpp))}\n};\n` +
-  `const uint8_t dlg_tiles[] = {\n${hex(DLG_TILES.flatMap(G.enc2bpp))}\n};\n` +
   `const uint8_t speaker_portrait[SPEAKER_COUNT] = { ${SPEAKER_IDS.map(id => portraitOf[id]).join(', ')} };\n` +
-  portraits.map((_, n) => `BANKREF_EXTERN(portrait_${n})\nextern const portrait_t portrait_${n};`).join('\n') + '\n' +
-  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) {\n  switch (p) {\n${portraits.map((_, n) => `    case ${n}: *out = &portrait_${n}; return BANK(portrait_${n});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
   `const palette_color_t ui_pal[12] = {\n${hex16(OVERVIEW_PAL.concat(HUD_PAL, TEXT_PAL).map(G.to555))}\n};\n` +
-  `const uint8_t font[] = {\n${hex(glyphs.flat(), 12)}\n};\n\n` +
-  `uint8_t area_ref(uint8_t a, const area_t **out) {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
-  `uint8_t biome_ref(uint8_t b, const biome_t **out) {\n  switch (b) {\n${usedBiomes.map(b => `    case ${BIOME_KEYS.indexOf(b)}: *out = &biome_${b}; return BANK(biome_${b});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
-  `uint8_t kind_ref(uint8_t k, const kind_t **out) {\n  switch (k) {\n${KIND_NAMES.map((k, i) => `    case ${i}: *out = &kind_${k}; return BANK(kind_${k});`).join('\n')}\n  }\n  return 0;\n}\n`);
+  `const uint8_t font[] = {\n${hex(glyphs.flat(), 12)}\n};\n`);
+write('world_far.c', `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\n` +
+  AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
+  usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
+  KIND_NAMES.map(k => `BANKREF_EXTERN(kind_${k})\nextern const kind_t kind_${k};`).join('\n') + '\n' +
+  portraits.map((_, n) => `BANKREF_EXTERN(portrait_${n})\nextern const portrait_t portrait_${n};`).join('\n') + '\n\n' +
+  `static const uint8_t ui_tiles[] = {\n${hex(UI_TILES.flatMap(G.enc2bpp))}\n};\n` +
+  `static const uint8_t overview_tiles[] = {\n${hex(OVERVIEW_TILES.flatMap(G.enc2bpp))}\n};\n` +
+  `static const uint8_t dlg_tiles[] = {\n${hex(DLG_TILES.flatMap(G.enc2bpp))}\n};\n` +
+  `void ui_load_tiles(void) BANKED {   // 0x8800 in VRAM bank 0: the HUD from tile 128, the overview from 193, the dialogue box from 204\n` +
+  `  set_data((uint8_t *)0x8800, ui_tiles, sizeof(ui_tiles));\n  set_data((uint8_t *)(0x8800 + (65 << 4)), overview_tiles, sizeof(overview_tiles));\n  set_data((uint8_t *)(0x8800 + (76 << 4)), dlg_tiles, sizeof(dlg_tiles));\n}\n\n` +
+  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) BANKED {\n  switch (p) {\n${portraits.map((_, n) => `    case ${n}: *out = &portrait_${n}; return BANK(portrait_${n});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
+  `uint8_t area_ref(uint8_t a, const area_t **out) BANKED {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
+  `uint8_t biome_ref(uint8_t b, const biome_t **out) BANKED {\n  switch (b) {\n${usedBiomes.map(b => `    case ${BIOME_KEYS.indexOf(b)}: *out = &biome_${b}; return BANK(biome_${b});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
+  `uint8_t kind_ref(uint8_t k, const kind_t **out) BANKED {\n  switch (k) {\n${KIND_NAMES.map((k, i) => `    case ${i}: *out = &kind_${k}; return BANK(kind_${k});`).join('\n')}\n  }\n  return 0;\n}\n`);
 
 for (const f of fs.readdirSync(OUT)) if (/\.(c|h|inc)$/.test(f) && !written.has(f)) fs.unlinkSync(path.join(OUT, f));   // gone from the game
 
