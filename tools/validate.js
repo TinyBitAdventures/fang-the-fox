@@ -1,8 +1,10 @@
 // Reachability check for every area: doors, items, NPCs, signs and braziers must be reachable.
-// usage: node tools/validate.js [area]
+// usage: node tools/validate.js [area] [--gbc]      (--gbc: with the Game Boy Color edition's overrides)
 const fs = require('fs'), path = require('path');
 eval(fs.readFileSync(path.join(__dirname, '../js/data.js'), 'utf8') + ';global.AREAS=AREAS;global.MONSTERS=MONSTERS;global.ITEMS=ITEMS;');
-const COLS = 14, ROWS = 8, only = process.argv[2];
+const argv = process.argv.slice(2);
+if (argv.includes('--gbc')) for (const [k, v] of Object.entries(require('../gbc/overrides.js').areas || {})) Object.assign(AREAS[k], v);
+const COLS = 14, ROWS = 8, only = argv.find(a => !a.startsWith('--'));
 // first-visit arrival tile for each area, found by walking the world graph from home
 const arrival = { home: AREAS.home.map.join('').indexOf('F') }, order = ['home'];
 for (const allowWhen of [false, true]) for (let k = 0; k < order.length; k++) for (const d of Object.values(AREAS[order[k]].doors)) if ((allowWhen || !d.when) && !(d.to in arrival)) {
@@ -77,3 +79,4 @@ for (const [key, A] of Object.entries(AREAS)) {
   console.log(`${key.padEnd(18)} arrive@${starts[0]} ${report.length ? report.join(' | ') : 'ok'}`);
 }
 console.log(problems ? `${problems} PROBLEMS` : 'all reachable');
+process.exitCode = problems ? 1 : 0;
