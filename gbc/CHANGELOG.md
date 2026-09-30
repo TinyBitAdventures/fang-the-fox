@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-The start of the port: all 24 areas with the web game's maps and doors, turn-based combat with every monster's rules, items, levels, puzzles and a world that changes as you play, the story with every character, the shop, perk picks and saving, a HUD, sound effects and music, playable in the browser as it's built.
+The start of the port: all 24 areas with the web game's maps and doors, turn-based combat with every monster's rules, items, levels, puzzles and a world that changes as you play, the story with every character, the shop, perk picks and saving, a pause screen with a world map, the ending and credits, a HUD, sound effects and music, playable from the title to the credits and in the browser as it's built.
 
 ### The ROM
 - Color-only ROM (MBC5, 32 KB battery-backed save RAM, double speed) built with GBDK-2020 4.5.0.
@@ -35,6 +35,10 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - Story beats wait for calm play (never over a death, a door or a perk pick) and are saved with the game.
 - Saving to the cartridge: two slots that take turns (one cut short by the power leaves the other whole), each with the game, its story queue and the current area, checked by a checksum. The game saves every 5 turns, on entering an area and wherever the web game saves; CONTINUE brings it back.
 - Buttons are read at every VBlank, so a quick tap during a slow frame (a menu being drawn) still counts.
+- START opens the pause screen: MAP (every island Fang has seen, in its biome's colour, the paths between them, "?" for the ones next door, each boss's mark, red until beaten, and where Fang is), QUEST (the current quest, the Embers, the lost kits, relics and Hoot's next lesson, the treasures), FANG (level, attack, health, kills, turns, gems, every perk, the controls; RESUME or RESTART FROM SCRATCH, which erases the save) and OPTIONS (music, sound effects, volume and screen shake, kept on the cartridge).
+- When Fang falls, the world dims behind a box that says what felled him (a monster, lava, a steam vent, spores, dragon fire or poison); A gets him back up.
+- The credits roll after the ending (the web game's list, then Fang's level, kills, turns, kits and relics); A speeds them up, then Fang wakes at home with the ending seen.
+- A "!" bobs over friends with something new to say, and the cells the Dragon's breath will burn blink red until it lands.
 
 ### Build
 - Sprites: every kind of thing that moves (Fang, 5 friends, the kits, 25 monsters and bosses) cut into 8x16 pieces with 3 colours each (bosses get 2 palettes), placed in VRAM per area with its palettes; `build/preview/sprites.png` shows them all.
@@ -57,4 +61,5 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - `tools/bot/smoke.py`: 60 frames a second, walking, bumping, the camera, a door to the right area and cell, the overview, the music playing, beating the Goo King and the scene after it, Fire Spin lighting braziers and the gate redrawn open, a block pressing a plate, a Treant hiding as a tree until it wakes, Grandma's dialogue and gift, a sign, Rudy's shop, a perk pick, and a save that CONTINUE brings back after switching off.
 - Parity with the web game: `tools/parity.js` plays the web game headless with the ROM's random numbers, and `tools/bot/parity.py` plays the same run on the ROM and compares every step (area, turn, Fang's numbers, every foe's cell and health, items). `tools/bot/parity_suite.py` runs 22 scenarios chosen for the monsters' rules, the perks, falling, the puzzles and the characters; every cell's tile, the blocks, the lit braziers, flags, perks, kits and the random number generator's state are compared too, and all match step for step. Between steps both sides read dialogue through, pick the same perk and buy the same ware (the web side chooses and records it), and let story beats play. `TRACE_STEP=n` prints every random number the web side draws in step n and where. The web side walks the shortest path toward foes, cold braziers, blocks and doors, and a scenario can open with a script (`fight,goto:30,right,...`). Runs stop where the two sides can't match yet: a boss summoning or a slim splitting (their random spots are shuffled differently).
 - `tools/screenshot.js` drives the web player frame by frame with Playwright; steps can read and write the ROM's memory by symbol name.
+- `tools/bot/playthrough.py` (a port of `tools/playthrough.js`) plays the whole story on the ROM: Grandma, the five bosses, every puzzle, the five kits, the Hearth, the Primordial and the credits. It matches the web bot's balance: about 900 steps, level 12 and 2 falls on both. `--god` keeps Fang topped up.
 - `make` recompiles only the sources that changed (the generator rewrites only files whose content changed): a one-file change builds in seconds instead of minutes.
