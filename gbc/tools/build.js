@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Fang the Fox, Game Boy Color edition: turns the web game's maps and art into the generated C
-// (tilesets, palettes, area maps, HUD text) and checks every area against the GBC's budgets.
-// usage: node gbc/tools/build.js [--report]      (the Makefile runs it before compiling)
+// Fang the Fox, Game Boy Color edition: turns the web game's maps, art and data into the generated C
+// (tilesets, sprites, palettes, areas, doors, the HUD font, music) and checks every area against the
+// GBC's budgets. usage: node gbc/tools/build.js [--report]      (the Makefile runs it before compiling)
 'use strict';
-const fs = require('fs'), path = require('path'), vm = require('vm'), zlib = require('zlib'), { execFileSync } = require('child_process');
+const fs = require('fs'), path = require('path'), vm = require('vm'), { execFileSync } = require('child_process');
 const GBC = path.join(__dirname, '..'), ROOT = path.join(GBC, '..');
 const OUT = path.join(GBC, 'src', 'gen'), PREVIEW = path.join(GBC, 'build', 'preview');
 const REPORT = process.argv.includes('--report');
@@ -17,19 +17,16 @@ const ART = path.join(GBC, 'art');   // GBC art: same format as js/sprites-*.js,
 if (fs.existsSync(ART)) for (const f of fs.readdirSync(ART).filter(f => f.endsWith('.js')).sort()) runFile(path.join(ART, f), `gbc/art/${f}`);
 const OV = require(path.join(GBC, 'overrides.js'));
 for (const [k, v] of Object.entries(OV.areas || {})) Object.assign(W.AREAS[k], v);
-const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT } = W;
+const { PAL, SPRITES, AREAS, BIOMES, MONSTERS, ITEMS, TERRAIN, FONT, TRACKS, KITS } = W;
+const G = require('./lib/gfx')(PAL), SONG = require('./lib/song');
 
 const COLS = 14, ROWS = 8, GX = 80, GY = 54;   // web grid origin, used by the floor-variant hash
-const AREA_KEYS = Object.keys(AREAS), BIOME_KEYS = Object.keys(BIOMES);
-const TERRAIN_PALS = 5, UI_PAL = 7, MAX_STATIC_TILES = 256, HUD_BASE = 128;
+const AREA_KEYS = Object.keys(AREAS), BIOME_KEYS = Object.keys(BIOMES), TRACK_KEYS = Object.keys(TRACKS);
+const TERRAIN_PALS = 5, MAX_STATIC_TILES = 256, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
 const problems = [];
-
 const hash2 = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
-const rgbOf = k => { const h = PAL[k]; return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; };
-const dist = (a, b) => { const A = rgbOf(a), B = rgbOf(b), rm = (A[0] + B[0]) / 2, dr = A[0] - B[0], dg = A[1] - B[1], db = A[2] - B[2]; return (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db; };
-const luma = k => { const [r, g, b] = rgbOf(k); return 0.299 * r + 0.587 * g + 0.114 * b; };
-const to555 = k => { const [r, g, b] = rgbOf(k); return (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10); };
-const from555 = v => [v & 31, (v >> 5) & 31, (v >> 10) & 31].map(c => (c << 3) | (c >> 2));
+const cName = s => s.replace(/[^a-z0-9_]/gi, '_');
+const spr = name => { const s = SPRITES[name]; if (!s) throw new Error(`missing sprite ${name}`); return s; };
 
 // ---------- what each cell shows at the start (mirrors makeArea + applyWhenDoors + drawWorld) ----------
 function initialTiles(A) {
@@ -67,12 +64,11 @@ function tallOf(A, ch, i, gx, gy) {
   if (ch === 'p') return 'portal_0';
   return null;
 }
-function blit(img, name, dx, dy, clipTop = 0) {
-  const s = SPRITES[name]; if (!s) { problems.push(`missing sprite ${name}`); return; }
-  s.rows.forEach((row, yy) => { for (let xx = 0; xx < row.length; xx++) {
+function blit(img, w, h, name, dx, dy, clipTop = 0) {
+  spr(name).rows.forEach((row, yy) => { for (let xx = 0; xx < row.length; xx++) {
     const ch = row[xx], X = dx + xx, Y = dy + yy;
-    if (ch === '.' || !PAL[ch] || X < 0 || X > 15 || Y < clipTop || Y > 15) continue;
-    img[Y * 16 + X] = ch;
+    if (ch === '.' || !PAL[ch] || X < 0 || X >= w || Y < clipTop || Y >= h) continue;
+    img[Y * w + X] = ch;
   } });
 }
 // one area as a 224x128 image of palette keys; tall sprites of a cell overhang into the cell above
@@ -81,180 +77,240 @@ function composeArea(key) {
   const tall = tiles.map((ch, i) => tallOf(A, ch, i, i % COLS, (i / COLS) | 0));
   for (let gy = 0; gy < ROWS; gy++) for (let gx = 0; gx < COLS; gx++) {
     const i = gy * COLS + gx, ch = tiles[i], cell = new Array(256);
-    blit(cell, floorOf(key, A, gx, gy), 0, 0);
-    const fl = flatOf(A, ch, i); if (fl) blit(cell, fl, 0, 0);
-    if (tall[i]) { const s = SPRITES[tall[i]]; blit(cell, tall[i], Math.round(8 - s.w / 2), 16 - s.h); }
+    blit(cell, 16, 16, floorOf(key, A, gx, gy), 0, 0);
+    const fl = flatOf(A, ch, i); if (fl) blit(cell, 16, 16, fl, 0, 0);
+    if (tall[i]) { const s = spr(tall[i]); blit(cell, 16, 16, tall[i], Math.round(8 - s.w / 2), 16 - s.h); }
     const below = gy < ROWS - 1 ? i + COLS : -1;
     if (below >= 0 && tall[below]) {
-      const s = SPRITES[tall[below]], isDoor = c => c === 'd' || c === 'D';
+      const s = spr(tall[below]), isDoor = c => c === 'd' || c === 'D';
       const clip = s.h > 18 && isDoor(ch) && !isDoor(tiles[below]) ? 14 : 0;   // a tall obstacle never hides the doorway above it
-      blit(cell, tall[below], Math.round(8 - s.w / 2), 32 - s.h, clip);
+      blit(cell, 16, 16, tall[below], Math.round(8 - s.w / 2), 32 - s.h, clip);
     }
     for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) img[(gy * 16 + y) * 224 + gx * 16 + x] = cell[y * 16 + x];
   }
   return { img, tiles };
 }
-const cut = (img, w, tx, ty) => { const t = []; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) t.push(img[(ty * 8 + y) * w + tx * 8 + x]); return t; };
+const cut = (img, w, tx, ty, th = 8) => { const t = []; for (let y = 0; y < th; y++) for (let x = 0; x < 8; x++) t.push(img[(ty * th + y) * w + tx * 8 + x]); return t; };
 
-// ---------- colours: <=4 per tile, <=5 terrain palettes per biome ----------
-function reduceTile(t, max) {
-  const count = {}; for (const k of t) count[k] = (count[k] || 0) + 1;
-  const map = {}; let keys = Object.keys(count);
-  while (keys.length > max) {   // fold the rarest colour into its nearest neighbour
-    keys.sort((a, b) => count[a] - count[b]);
-    const k = keys.shift(); let best = keys[0];
-    for (const o of keys) if (dist(k, o) < dist(k, best)) best = o;
-    count[best] += count[k]; map[k] = best;
-  }
-  const f = k => (map[k] ? f(map[k]) : k);
-  return t.map(f);
-}
-function solvePalettes(tiles, K) {
-  const sets = new Map();
-  for (const t of tiles) { const cols = [...new Set(t)].sort(), id = cols.join(''); const s = sets.get(id) || { cols, w: 0, px: {} }; s.w++; for (const k of t) s.px[k] = (s.px[k] || 0) + 1; sets.set(id, s); }
-  const order = [...sets.values()].sort((a, b) => b.cols.length - a.cols.length || b.w - a.w);
-  const pals = [], left = [];
-  for (const s of order) {
-    let best = null, add = 9;
-    for (const p of pals) { const u = new Set([...p, ...s.cols]); if (u.size <= 4 && u.size - p.size < add) { best = p; add = u.size - p.size; } }
-    if (best) s.cols.forEach(c => best.add(c)); else if (pals.length < K) pals.push(new Set(s.cols)); else left.push(s);
-  }
-  for (const s of left) {   // no palette holds it: grow one with room, else the one that costs least
-    const room = pals.filter(p => p.size < 4);
-    for (const p of room) { const miss = s.cols.filter(c => !p.has(c)).sort((a, b) => s.px[b] - s.px[a]); while (p.size < 4 && miss.length) p.add(miss.shift()); }
-  }
-  return pals.map(p => [...p].sort((a, b) => luma(a) - luma(b)));
-}
-function bestPalette(t, pals) {
-  let best = 0, bestErr = Infinity, bestIdx = null;
-  pals.forEach((p, pi) => {
-    let err = 0; const idx = t.map(k => { let j = p.indexOf(k); if (j >= 0) return j; j = 0; for (let q = 1; q < p.length; q++) if (dist(k, p[q]) < dist(k, p[j])) j = q; err += dist(k, p[j]); return j; });
-    if (err < bestErr) { best = pi; bestErr = err; bestIdx = idx; }
-  });
-  return { pal: best, idx: bestIdx, err: bestErr };
-}
-
-// ---------- tiles: 2bpp encoding and dedupe with flips ----------
-const enc2bpp = idx => { const out = []; for (let y = 0; y < 8; y++) { let lo = 0, hi = 0; for (let x = 0; x < 8; x++) { const v = idx[y * 8 + x]; lo |= (v & 1) << (7 - x); hi |= ((v >> 1) & 1) << (7 - x); } out.push(lo, hi); } return out; };
-const flipX = t => t.map((_, i) => t[(i & ~7) + 7 - (i & 7)]), flipY = t => t.map((_, i) => t[(7 - (i >> 3)) * 8 + (i & 7)]);
-class TileSet {
-  constructor() { this.tiles = []; this.index = new Map(); }
-  add(idx) {   // returns [tile number, attribute flip bits]
-    for (const [v, flip] of [[idx, 0], [flipX(idx), 0x20], [flipY(idx), 0x40], [flipX(flipY(idx)), 0x60]]) { const k = v.join(''); if (this.index.has(k)) return [this.index.get(k), flip]; }
-    this.index.set(idx.join(''), this.tiles.length); this.tiles.push(idx); return [this.tiles.length - 1, 0];
-  }
-}
-
-// ---------- text with the web game's bitmap font (build-time; the runtime font comes later) ----------
-function textStrip(img, w, str, x, y, colour) {
-  for (const ch of str.toUpperCase()) { const g = FONT[ch] || FONT['?']; for (let k = 0; k < g.px.length; k += 2) img[(y + g.px[k + 1]) * w + x + g.px[k]] = colour; x += g.w + 1; }
-  return x;
-}
-const textWidth = str => [...str.toUpperCase()].reduce((a, ch) => a + (FONT[ch] || FONT['?']).w + 1, 0) - 1;
-const UI_COLOURS = ['1', '6', '4', 'y'];   // background, text, dim, accent
-function hudFor(n, key) {
-  const A = AREAS[key], img = new Array(160 * 16).fill(0);
-  let x = textStrip(img, 160, String(n + 1).padStart(2, '0') + '/' + AREA_KEYS.length, 2, 1, 3);
-  textStrip(img, 160, A.title, x + 5, 1, 1);
-  textStrip(img, 160, A.biome, 158 - textWidth(A.biome), 1, 2);
-  textStrip(img, 160, 'SELECT NEXT  B BACK  < > LOOK', 2, 9, 2);
-  const set = new TileSet(), map = [];
-  for (let ty = 0; ty < 2; ty++) for (let tx = 0; tx < 20; tx++) { const idx = []; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) idx.push(img[(ty * 8 + y) * 160 + tx * 8 + x]); map.push(HUD_BASE + set.add(idx)[0]); }
-  if (set.tiles.length > 64) problems.push(`${key}: HUD needs ${set.tiles.length} tiles`);
-  return { tiles: set.tiles, map, img };
-}
-
-// ---------- build every biome's tileset and every area's map ----------
+// ---------- background: one tileset and 5 palettes per biome ----------
 const composed = Object.fromEntries(AREA_KEYS.map(k => [k, composeArea(k)]));
-const biomeOut = {}, areaOut = {}, report = [];
+const biomeOut = {}, areaOut = {};
 for (const b of BIOME_KEYS) {
   const keys = AREA_KEYS.filter(k => AREAS[k].biome === b); if (!keys.length) continue;
-  const raw = [], over4 = [];
-  for (const k of keys) for (let ty = 0; ty < 16; ty++) for (let tx = 0; tx < 28; tx++) { const t = cut(composed[k].img, 224, tx, ty); if (new Set(t).size > 4) over4.push(k); raw.push({ k, tx, ty, t: reduceTile(t, 4) }); }
-  const pals = solvePalettes(raw.map(r => r.t), TERRAIN_PALS), set = new TileSet();
+  const raw = [];
+  for (const k of keys) for (let ty = 0; ty < 16; ty++) for (let tx = 0; tx < 28; tx++) raw.push({ k, tx, ty, t: G.reduceTile(cut(composed[k].img, 224, tx, ty), 4) });
+  const pals = G.solvePalettes(raw.map(r => r.t), TERRAIN_PALS), set = new G.TileSet();
   let errPx = 0;
   for (const k of keys) areaOut[k] = { map: new Array(448), attr: new Array(448), shown: new Array(224 * 128) };
   for (const r of raw) {
-    const { pal, idx } = bestPalette(r.t, pals), [n, flip] = set.add(idx), o = areaOut[r.k], at = r.ty * 28 + r.tx;
+    const { pal, idx } = G.bestPalette(r.t, pals), [n, flip] = set.add(idx), o = areaOut[r.k], at = r.ty * 28 + r.tx;
     o.map[at] = n & 127; o.attr[at] = pal | (n >= 128 ? 0x08 : 0) | flip;
     const orig = cut(composed[r.k].img, 224, r.tx, r.ty);
     for (let p = 0; p < 64; p++) { const c = pals[pal][idx[p]]; o.shown[(r.ty * 8 + (p >> 3)) * 224 + r.tx * 8 + (p & 7)] = c; if (c !== orig[p]) errPx++; }
   }
   if (set.tiles.length > MAX_STATIC_TILES) problems.push(`biome ${b}: ${set.tiles.length} static tiles (budget ${MAX_STATIC_TILES})`);
-  biomeOut[b] = { tiles: set.tiles, pals, keys, errPx, px: raw.length * 64, over4: over4.length };
+  biomeOut[b] = { tiles: set.tiles, pals, keys, errPx, px: raw.length * 64 };
 }
-AREA_KEYS.forEach((k, n) => { areaOut[k].hud = hudFor(n, k); });
 
-// entity pressure per area: sprites on one row (8x16 sprites, 2 per 16 px character, 4 for a boss) and monster types
-for (const k of AREA_KEYS) {
-  const A = AREAS[k], flat = A.map.join(''); let worstRow = 0, objs = 2; const types = new Set();
-  for (let y = 0; y < ROWS; y++) { let row = 0; for (let x = 0; x < COLS; x++) { const ch = flat[y * COLS + x], m = MONSTERS[ch]; if (m) { row += m.boss ? 4 : 2; types.add(ch); } else if (ch === '&') row += 2; } worstRow = Math.max(worstRow, row); }
-  for (const ch of flat) { const m = MONSTERS[ch]; if (m) objs += m.boss ? 8 : 2; else if (ch === '&') objs += 2; }
-  const b = biomeOut[A.biome];
-  report.push({ k, biome: A.biome, rowObjs: worstRow, objs, types: types.size, biomeTiles: b.tiles.length, pals: b.pals.length, err: (100 * b.errPx / b.px).toFixed(1) });
+// ---------- sprites: every kind of thing that moves, in 8x16 sprite tiles ----------
+// A kind's frames are padded into a box of cols x 8 by rows x 16 pixels, bottom-anchored and centred on
+// its cell like drawSpr (x = round(cell centre - w / 2)). Each 8x16 piece gets 3 colours + transparent.
+const NPC_SPR = { grandma: 'grandma', hoot: 'hoot', rudy: 'rudy', lumen: 'lumen', queen: 'queen' };
+const npcKind = id => (KITS.includes(id) ? 'kit' : NPC_SPR[id]);
+const mKind = ch => 'm_' + MONSTERS[ch].spr;
+const KF = { FLIES: 1, BOSS: 2, NPC: 4, FAST: 8, TALL: 16 };
+function kindDef(name) {
+  if (name === 'fox') return { frames: ['fox_0', 'fox_1', 'fox_hop', 'fox_attack'], flags: 0, share: null };
+  if (name === 'kit') return { frames: ['kit_0', 'kit_1'], flags: KF.NPC, share: 'fox' };
+  if (Object.values(NPC_SPR).includes(name)) return { frames: [name + '_0', name + '_1'], flags: KF.NPC };
+  const m = Object.values(MONSTERS).find(m => 'm_' + m.spr === name);   // monster kinds are "m_<sprite>" (map letters differ only by case)
+  return { frames: [m.spr + '_0', m.spr + '_1'], flags: (m.flies ? KF.FLIES : 0) | (m.boss ? KF.BOSS : 0) | (m.spr === 'bat' ? KF.FAST : 0), pals: m.boss ? 2 : 1 };
 }
+function pieces(frames) {   // all 8x16 pieces of all frames, and the box
+  const w = Math.max(...frames.map(f => spr(f).w)), h = Math.max(...frames.map(f => spr(f).h));
+  const cols = Math.ceil(w / 8), rows = Math.ceil(h / 16), bw = cols * 8, bh = rows * 16, out = [];
+  for (const f of frames) {
+    const s = spr(f), img = new Array(bw * bh).fill(null);
+    blit(img, bw, bh, f, Math.round(bw / 2 - s.w / 2), bh - s.h);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) out.push(cut(img, bw, c, r, 16));
+  }
+  return { cols, rows, pieces: out };
+}
+const kinds = {};
+function buildKind(name) {
+  if (kinds[name]) return kinds[name];
+  const def = kindDef(name), p = pieces(def.frames), reduced = p.pieces.map(t => G.reduceTile(t, 3));
+  let pals;
+  if (def.share) pals = buildKind(def.share).pals;
+  else if (name === 'fox') pals = G.solvePalettes(reduced.concat(pieces(kindDef('kit').frames).pieces.map(t => G.reduceTile(t, 3))), 1, 3);
+  else pals = G.solvePalettes(reduced, def.pals || 1, 3);
+  const palOf = [], tiles = [];
+  for (const t of reduced) { const { pal, idx } = G.bestPalette(t, pals, 1); palOf.push(pal); tiles.push(idx); }
+  return (kinds[name] = { name, id: 0, frames: def.frames.length, cols: p.cols, rows: p.rows, flags: def.flags | (p.rows > 1 ? KF.TALL : 0), share: def.share || null, pals, palOf, tiles, ownPals: def.share ? 0 : pals.length });
+}
+// the edge marker: an arrow pointing left (flipped for the right edge), in the effects palette
+const MARKER = (() => { const t = new Array(128).fill(0); [[5, 4], [4, 5], [3, 6], [4, 7], [5, 8]].forEach(([x, y]) => { t[y * 8 + x] = 1; t[y * 8 + x + 1] = 2; t[y * 8 + x + 2] = 2; }); [[2, 5], [1, 6], [2, 7]].forEach(([x, y]) => { t[y * 8 + x] = 1; t[y * 8 + x + 1] = 3; }); return t; })();
+kinds.marker = { name: 'marker', frames: 1, cols: 1, rows: 1, flags: 0, pals: [], palOf: [0], tiles: [MARKER], ownPals: 0, fixed: 1 };
+const EFFECTS_PAL = ['0', 'y', '6'];   // sprite palette 1: outline, yellow, white (markers, later damage numbers)
+buildKind('fox'); buildKind('kit');
+for (const A of Object.values(AREAS)) for (const [i, ch] of [...A.map.join('')].entries()) {
+  if (MONSTERS[ch]) { buildKind(mKind(ch)); if (MONSTERS[ch].summon) buildKind(mKind(MONSTERS[ch].summon)); if (MONSTERS[ch].splits) buildKind(mKind('s')); }
+  else if (ch === '&') buildKind(npcKind(A.npcs[i]));
+}
+const KIND_NAMES = Object.keys(kinds);
+KIND_NAMES.forEach((k, n) => { kinds[k].id = n; });
+
+// ---------- areas: cells, doors, things in them, and where their sprites go ----------
+const REQ = [null, 'gooking', 'pathfinder', 'crystalKey', 'frost_cloak', 'dragon_scale'];
+const WHEN = [null, ...new Set(Object.values(AREAS).flatMap(A => Object.values(A.doors).map(d => d.when).filter(Boolean)))];
+const spawnOf = A => { const i = A.map.join('').indexOf('F'); return i >= 0 ? i : 43; };
+const report = [];
+for (const key of AREA_KEYS) {
+  const A = AREAS[key], flat = A.map.join(''), o = areaOut[key];
+  o.cells = composed[key].tiles.map(c => c.charCodeAt(0));
+  o.doors = Object.entries(A.doors).map(([i, d]) => {
+    if (d.req && !REQ.includes(d.req)) problems.push(`${key}: door ${i} needs unknown ${d.req}`);
+    return { cell: +i, to: AREA_KEYS.indexOf(d.to), spawn: d.spawn !== undefined ? d.spawn : spawnOf(AREAS[d.to]), req: Math.max(0, REQ.indexOf(d.req || null)), when: Math.max(0, WHEN.indexOf(d.when || null)), name: d.name || '' };
+  });
+  o.ents = []; const used = ['fox', 'marker'];
+  [...flat].forEach((ch, i) => {
+    let k = null;
+    if (MONSTERS[ch]) k = mKind(ch); else if (ch === '&') k = npcKind(A.npcs[i]);
+    if (!k) return;
+    if (!used.includes(k)) used.push(k);
+    o.ents.push({ kind: used.indexOf(k), cell: i });
+    const m = MONSTERS[ch];
+    if (m && m.summon && !used.includes(mKind(m.summon))) used.push(mKind(m.summon));
+    if (m && m.splits && !used.includes(mKind('s'))) used.push(mKind('s'));
+  });
+  if (key === 'home' && !used.includes('kit')) used.push('kit');   // rescued kits come home
+  // sprite VRAM and palettes: fox in bank 0 from tile 0, then every kind this area can show
+  let bank = 0, next = 0, slot = 2; const worst = { tiles: 0 };
+  o.kinds = used.map(k => {
+    const K = kinds[k], n = K.tiles.length * 2;
+    if (next + n > OBJ_TILES) { bank++; next = 0; }
+    if (bank > 1) problems.push(`${key}: sprite tiles do not fit in VRAM`);
+    const at = { kind: K.id, bank, tile: next, pal: k === 'fox' || K.share === 'fox' ? 0 : k === 'marker' ? 1 : slot };
+    next += n; worst.tiles = bank * OBJ_TILES + next;
+    if (K.ownPals && k !== 'fox') slot += K.ownPals;
+    return at;
+  });
+  if (slot > 8) problems.push(`${key}: needs ${slot} sprite palettes (8 on the GBC)`);
+  const pal = [];
+  const put = (s, cols) => { for (let c = 0; c < 4; c++) pal[s * 4 + c] = c && cols[c - 1] ? G.to555(cols[c - 1]) : 0; };
+  for (let s = 0; s < 8; s++) put(s, []);
+  put(0, kinds.fox.pals[0]); put(1, EFFECTS_PAL);
+  o.kinds.forEach((at, n) => { const K = kinds[used[n]]; if (at.pal >= 2) K.pals.forEach((p, j) => put(at.pal + j, p)); });
+  o.objPal = pal;
+  // pressure: sprites on one row (plus Fang), sprites in all
+  let rowObjs = 0, objs = kinds.fox.cols * kinds.fox.rows;
+  for (let y = 0; y < ROWS; y++) { let n = 0; for (const e of o.ents) if (((e.cell / COLS) | 0) === y) { const K = kinds[used[e.kind]]; n += K.cols; } rowObjs = Math.max(rowObjs, n); }
+  for (const e of o.ents) { const K = kinds[used[e.kind]]; objs += K.cols * K.rows; }
+  report.push({ key, biome: A.biome, rowObjs, objs, pals: slot, objTiles: worst.tiles, biomeTiles: biomeOut[A.biome].tiles.length, err: (100 * biomeOut[A.biome].errPx / biomeOut[A.biome].px).toFixed(1) });
+}
+
+// ---------- the HUD: icons, bar pieces and the font ----------
+const HUD_PAL = ['1', 'R', '4', '6'], TEXT_PAL = ['1', '6', '4', 'y'];   // BG palettes 6 (icons, bar) and 7 (text)
+const icon = name => cut((() => { const s = spr(name), img = new Array(64).fill('1'); blit(img, 8, 8, name, 0, 0); return img.map(k => (k === '0' ? '1' : k)); })(), 8, 0, 0).map(k => HUD_PAL.indexOf(G.nearest(k, HUD_PAL)));
+const barTile = fill => { const t = new Array(64).fill(0); for (let y = 2; y < 6; y++) for (let x = 0; x < 8; x++) t[y * 8 + x] = x < fill ? 1 : 2; return t; };
+const UI_TILES = [new Array(64).fill(0), icon('ico_heart'), icon('ico_sword'), icon('ico_fish'), icon('ico_gem')];
+for (let f = 0; f <= 8; f++) UI_TILES.push(barTile(f));
+const glyphs = [];
+for (let c = 32; c < 96; c++) { const g = FONT[String.fromCharCode(c)] || FONT['?']; const rows = [0, 0, 0, 0, 0]; for (let k = 0; k < g.px.length; k += 2) rows[g.px[k + 1]] |= 0x80 >> g.px[k]; glyphs.push([g.w, ...rows]); }
 
 // ---------- C output ----------
 fs.mkdirSync(OUT, { recursive: true });
 for (const f of fs.readdirSync(OUT)) if (/\.(c|h)$/.test(f)) fs.unlinkSync(path.join(OUT, f));
 const hex = (arr, per = 16) => arr.map(v => '0x' + v.toString(16).padStart(2, '0')).reduce((lines, v, i) => { if (i % per === 0) lines.push([]); lines[lines.length - 1].push(v); return lines; }, []).map(l => '  ' + l.join(', ')).join(',\n');
 const hex16 = arr => '  ' + arr.map(v => '0x' + v.toString(16).padStart(4, '0')).join(', ');
-const cName = s => s.replace(/[^a-z0-9_]/gi, '_');
-const HEAD = '// Generated by gbc/tools/build.js from js/data.js and the sprites. Do not edit.\n';
+const cstr = s => '"' + s.toUpperCase().replace(/[\\"]/g, '\\$&') + '"';
+const HEAD = '// Generated by gbc/tools/build.js from the web game. Do not edit.\n';
+const write = (f, s) => fs.writeFileSync(path.join(OUT, f), HEAD + s);
 
 for (const [b, o] of Object.entries(biomeOut)) {
-  const pal = []; for (let p = 0; p < TERRAIN_PALS; p++) for (let c = 0; c < 4; c++) pal.push(o.pals[p] && o.pals[p][c] ? to555(o.pals[p][c]) : 0);
-  fs.writeFileSync(path.join(OUT, `biome_${b}.c`), `${HEAD}#pragma bank 255\n#include <gb/gb.h>\n#include <gb/cgb.h>\n#include "world.h"\n\nBANKREF(biome_${b})\n` +
-    `static const uint8_t tiles[] = {\n${hex(o.tiles.flatMap(enc2bpp))}\n};\nstatic const palette_color_t pal[] = {\n${hex16(pal)}\n};\n` +
+  const pal = []; for (let p = 0; p < TERRAIN_PALS; p++) for (let c = 0; c < 4; c++) pal.push(o.pals[p] && o.pals[p][c] ? G.to555(o.pals[p][c]) : 0);
+  write(`biome_${b}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(biome_${b})\n` +
+    `static const uint8_t tiles[] = {\n${hex(o.tiles.flatMap(G.enc2bpp))}\n};\nstatic const palette_color_t pal[] = {\n${hex16(pal)}\n};\n` +
     `const biome_t biome_${b} = { ${o.tiles.length}, tiles, pal };\n`);
 }
-for (const k of AREA_KEYS) {
-  const o = areaOut[k], n = cName(k), hudTiles = o.hud.tiles.flatMap(enc2bpp);
-  fs.writeFileSync(path.join(OUT, `area_${n}.c`), `${HEAD}#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(area_${n})\n` +
+for (const K of Object.values(kinds)) {
+  const pal = []; for (const p of K.pals) pal.push(0, ...[0, 1, 2].map(c => (p[c] ? G.to555(p[c]) : 0)));
+  write(`kind_${K.name}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(kind_${K.name})\n` +
+    `static const uint8_t tiles[] = {\n${hex(K.tiles.flatMap(G.enc2bpp))}\n};\nstatic const uint8_t pal_of[] = { ${K.palOf.join(', ')} };\n` +
+    `const kind_t kind_${K.name} = { ${K.cols}, ${K.rows}, ${K.frames}, ${K.flags}, ${K.tiles.length * 2}, tiles, pal_of };\n`);
+}
+AREA_KEYS.forEach((k, n) => {
+  const o = areaOut[k], A = AREAS[k], c = cName(k);
+  write(`area_${c}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(area_${c})\n` +
     `static const uint8_t map[] = {\n${hex(o.map, 28)}\n};\nstatic const uint8_t attr[] = {\n${hex(o.attr, 28)}\n};\n` +
-    `static const uint8_t hud_tiles[] = {\n${hex(hudTiles)}\n};\nstatic const uint8_t hud_map[] = {\n${hex(o.hud.map, 20)}\n};\n` +
-    `const area_t area_${n} = { ${BIOME_KEYS.indexOf(AREAS[k].biome)}, map, attr, ${o.hud.tiles.length}, hud_tiles, hud_map };\n`);
-}
-const usedBiomes = BIOME_KEYS.filter(b => biomeOut[b]);
-fs.writeFileSync(path.join(OUT, 'world.h'), `${HEAD}#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h>\n#include <gb/cgb.h>\n\n` +
-  `#define AREA_COUNT ${AREA_KEYS.length}\n#define BIOME_COUNT ${BIOME_KEYS.length}\n#define AREA_W 28   // tiles\n#define AREA_H 16\n#define HUD_BASE ${HUD_BASE}\n#define UI_PAL ${UI_PAL}\n\n` +
-  `typedef struct { uint16_t tiles_n; const uint8_t *tiles; const palette_color_t *pal; } biome_t;   // pal: ${TERRAIN_PALS} palettes x 4\n` +
-  `typedef struct { uint8_t biome; const uint8_t *map; const uint8_t *attr; uint8_t hud_n; const uint8_t *hud_tiles; const uint8_t *hud_map; } area_t;\n\n` +
-  `// each returns the ROM bank that holds *out and everything it points to\nuint8_t area_ref(uint8_t a, const area_t **out);\nuint8_t biome_ref(uint8_t b, const biome_t **out);\n` +
-  `extern const palette_color_t ui_pal[4];\n\n#endif\n`);
-fs.writeFileSync(path.join(OUT, 'world.c'), `${HEAD}#include <gb/gb.h>\n#include "world.h"\n\n` +
-  AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
-  usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n\n' +
-  `const palette_color_t ui_pal[4] = { ${UI_COLOURS.map(to555).map(v => '0x' + v.toString(16).padStart(4, '0')).join(', ')} };\n\n` +
-  `uint8_t area_ref(uint8_t a, const area_t **out) {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
-  `uint8_t biome_ref(uint8_t b, const biome_t **out) {\n  switch (b) {\n${usedBiomes.map(b => `    case ${BIOME_KEYS.indexOf(b)}: *out = &biome_${b}; return BANK(biome_${b});`).join('\n')}\n  }\n  return 0;\n}\n`);
-
-// ---------- preview PNGs: what the ROM should show, before the emulator ----------
-function png(file, w, h, rgbAt) {
-  const raw = Buffer.alloc((w * 3 + 1) * h);
-  for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const c = rgbAt(x, y), o = y * (w * 3 + 1) + 1 + x * 3; raw[o] = c[0]; raw[o + 1] = c[1]; raw[o + 2] = c[2]; } }
-  const chunk = (type, data) => { const b = Buffer.alloc(12 + data.length); b.writeUInt32BE(data.length, 0); b.write(type, 4, 'ascii'); data.copy(b, 8); b.writeUInt32BE(zlib.crc32(Buffer.concat([Buffer.from(type, 'ascii'), data])) >>> 0, 8 + data.length); return b; };
-  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
-  fs.writeFileSync(file, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
-}
-fs.mkdirSync(PREVIEW, { recursive: true });
-const SHEET_COLS = 4, CW = 224, CH = 144 + 4;
-png(path.join(PREVIEW, 'areas.png'), SHEET_COLS * (CW + 4), Math.ceil(AREA_KEYS.length / SHEET_COLS) * CH, (x, y) => {
-  const n = Math.floor(y / CH) * SHEET_COLS + Math.floor(x / (CW + 4)), lx = x % (CW + 4), ly = y % CH, k = AREA_KEYS[n];
-  if (!k || lx >= CW || ly >= 144) return [16, 16, 24];
-  if (ly < 128) return from555(to555(areaOut[k].shown[ly * 224 + lx]));
-  if (lx >= 160) return [16, 16, 24];
-  return from555(to555(UI_COLOURS[areaOut[k].hud.img[(ly - 128) * 160 + lx]]));
+    `static const uint8_t cells[] = {\n${hex(o.cells, 14)}\n};\n` +
+    `static const door_t doors[] = {\n${o.doors.map(d => `  { ${d.cell}, ${d.to}, ${d.spawn}, ${d.req}, ${d.when}, ${cstr(d.name)} }`).join(',\n') || '  { 0 }'}\n};\n` +
+    `static const ent_t ents[] = {\n${o.ents.map(e => `  { ${e.kind}, ${e.cell} }`).join(',\n') || '  { 0 }'}\n};\n` +
+    `static const area_kind_t kinds[] = {\n${o.kinds.map(a => `  { ${a.kind}, ${a.bank}, ${a.tile}, ${a.pal} }`).join(',\n')}\n};\n` +
+    `static const palette_color_t obj_pal[] = {\n${hex16(o.objPal)}\n};\n` +
+    `const area_t area_${c} = { ${BIOME_KEYS.indexOf(A.biome)}, ${TRACK_KEYS.indexOf(A.music)}, ${spawnOf(A)}, map, attr, cells, ${o.doors.length}, doors, ${o.ents.length}, ents, ${o.kinds.length}, kinds, obj_pal, ${cstr(A.title)} };\n`);
 });
+const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js')).map(f => f.slice(0, -3));
+for (const s of songs) fs.writeFileSync(path.join(OUT, `song_${s}.c`), SONG.compile(s, require(path.join(GBC, 'music', s + '.js'))));
+const chFlags = new Array(128).fill(0);
+for (let c = 32; c < 128; c++) { const ch = String.fromCharCode(c), T = TERRAIN[ch]; if (ch === '#' || ch === '~' || (T && T.solid) || ch === '@') chFlags[c] |= 1; if (ch === '~') chFlags[c] |= 2; if (ch === 'd' || ch === 'D') chFlags[c] |= 4; if (ch === 'w') chFlags[c] |= 8; }
+const usedBiomes = BIOME_KEYS.filter(b => biomeOut[b]);
+write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h>\n#include <gb/cgb.h>\n\n` +
+  `#define AREA_COUNT ${AREA_KEYS.length}\n#define KIND_COUNT ${KIND_NAMES.length}\n#define COLS ${COLS}\n#define ROWS ${ROWS}\n#define CELLS ${COLS * ROWS}\n#define AREA_W 28   // tiles\n#define AREA_H 16\n` +
+  `#define UI_TILES ${UI_TILES.length}\n#define KIND_FOX ${kinds.fox.id}\n#define KIND_MARKER ${kinds.marker.id}\n` +
+  `#define KF_FLIES ${KF.FLIES}\n#define KF_BOSS ${KF.BOSS}\n#define KF_NPC ${KF.NPC}\n#define KF_FAST ${KF.FAST}\n#define KF_TALL ${KF.TALL}   // two sprite rows\n` +
+  `#define CF_SOLID 1\n#define CF_VOID 2\n#define CF_DOOR 4\n#define CF_WATER 8\n` +
+  REQ.slice(1).map((r, i) => `#define REQ_${r.toUpperCase()} ${i + 1}\n`).join('') + WHEN.slice(1).map((r, i) => `#define WHEN_${r.toUpperCase()} ${i + 1}\n`).join('') +
+  `\ntypedef struct { uint16_t tiles_n; const uint8_t *tiles; const palette_color_t *pal; } biome_t;   // pal: ${TERRAIN_PALS} palettes x 4\n` +
+  `typedef struct { uint8_t cols, rows, frames, flags, tiles_n; const uint8_t *tiles; const uint8_t *pal_of; } kind_t;   // pal_of: palette (0/1) of each 8x16 piece\n` +
+  `typedef struct { uint8_t cell, to, spawn, req, when; const char *name; } door_t;\n` +
+  `typedef struct { uint8_t kind, cell; } ent_t;                     // kind: index into the area's kinds\n` +
+  `typedef struct { uint8_t kind, bank, tile, pal; } area_kind_t;    // where this kind's sprite tiles and palettes go\n` +
+  `typedef struct { uint8_t biome, music, spawn; const uint8_t *map, *attr, *cells; uint8_t door_n; const door_t *doors; uint8_t ent_n; const ent_t *ents;\n` +
+  `                 uint8_t kind_n; const area_kind_t *kinds; const palette_color_t *obj_pal; const char *title; } area_t;\n\n` +
+  `// each returns the ROM bank that holds *out and everything it points to\nuint8_t area_ref(uint8_t a, const area_t **out);\nuint8_t biome_ref(uint8_t b, const biome_t **out);\nuint8_t kind_ref(uint8_t k, const kind_t **out);\n\n` +
+  `extern const uint8_t ch_flags[128];\nextern const uint8_t ui_tiles[UI_TILES * 16];\nextern const palette_color_t ui_pal[8];   // BG palettes 6 (icons) and 7 (text)\nextern const uint8_t font[64 * 6];        // ' ' to '_': width, then 5 rows\n\n#endif\n`);
+write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
+  AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
+  usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
+  KIND_NAMES.map(k => `BANKREF_EXTERN(kind_${k})\nextern const kind_t kind_${k};`).join('\n') + '\n\n' +
+  `const uint8_t ch_flags[128] = {\n${hex(chFlags)}\n};\n` +
+  `const uint8_t ui_tiles[] = {\n${hex(UI_TILES.flatMap(G.enc2bpp))}\n};\n` +
+  `const palette_color_t ui_pal[8] = {\n${hex16(HUD_PAL.concat(TEXT_PAL).map(G.to555))}\n};\n` +
+  `const uint8_t font[] = {\n${hex(glyphs.flat(), 12)}\n};\n\n` +
+  `uint8_t area_ref(uint8_t a, const area_t **out) {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
+  `uint8_t biome_ref(uint8_t b, const biome_t **out) {\n  switch (b) {\n${usedBiomes.map(b => `    case ${BIOME_KEYS.indexOf(b)}: *out = &biome_${b}; return BANK(biome_${b});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
+  `uint8_t kind_ref(uint8_t k, const kind_t **out) {\n  switch (k) {\n${KIND_NAMES.map((k, i) => `    case ${i}: *out = &kind_${k}; return BANK(kind_${k});`).join('\n')}\n  }\n  return 0;\n}\n`);
+
+// ---------- preview: every area's background as the ROM should draw it ----------
+fs.mkdirSync(PREVIEW, { recursive: true });
+const SHEET_COLS = 4, CW = 224, CH = 128 + 4;
+G.png(path.join(PREVIEW, 'areas.png'), SHEET_COLS * (CW + 4), Math.ceil(AREA_KEYS.length / SHEET_COLS) * CH, (x, y) => {
+  const n = Math.floor(y / CH) * SHEET_COLS + Math.floor(x / (CW + 4)), lx = x % (CW + 4), ly = y % CH, k = AREA_KEYS[n];
+  if (!k || lx >= CW || ly >= 128) return [16, 16, 24];
+  return G.from555(G.to555(areaOut[k].shown[ly * 224 + lx]));
+});
+// sprite sheet: every kind's frames with its palettes
+{
+  const list = Object.values(kinds), cellW = 36, cellH = 36, per = 8;
+  const rgbOf = (K, piece, v) => { if (!v) return [40, 44, 70]; const cols = K.name === 'marker' ? EFFECTS_PAL : K.pals[K.palOf[piece]]; return G.from555(G.to555(cols[v - 1])); };
+  G.png(path.join(PREVIEW, 'sprites.png'), per * cellW * 2, Math.ceil(list.length / per) * cellH, (x, y) => {
+    const n = Math.floor(y / cellH) * per + Math.floor(x / (cellW * 2)), K = list[n]; if (!K) return [16, 16, 24];
+    const f = Math.floor((x % (cellW * 2)) / cellW), lx = x % cellW - 2, ly = y % cellH - 2;
+    if (f >= K.frames || lx < 0 || ly < 0 || lx >= K.cols * 8 || ly >= K.rows * 16) return [16, 16, 24];
+    const piece = (f * K.rows + (ly >> 4)) * K.cols + (lx >> 3);
+    return rgbOf(K, piece, K.tiles[piece][(ly & 15) * 8 + (lx & 7)]);
+  });
+}
 
 // ---------- report ----------
 const pad = (s, n) => String(s).padEnd(n);
 if (REPORT || problems.length) {
-  console.log(pad('area', 18) + pad('biome', 10) + pad('row objs', 10) + pad('objs', 6) + pad('types', 7) + pad('biome tiles', 13) + 'recoloured');
-  for (const r of report) console.log(pad(r.k, 18) + pad(r.biome, 10) + pad(r.rowObjs + (r.rowObjs > 8 ? ' !' : ''), 10) + pad(r.objs, 6) + pad(r.types, 7) + pad(r.biomeTiles, 13) + r.err + '%');
+  console.log(pad('area', 18) + pad('biome', 10) + pad('row sprites', 13) + pad('sprites', 9) + pad('sprite pals', 13) + pad('sprite tiles', 14) + pad('bg tiles', 10) + 'recoloured');
+  for (const r of report) console.log(pad(r.key, 18) + pad(r.biome, 10) + pad(r.rowObjs + 2 + (r.rowObjs + 2 > 10 ? ' !' : ''), 13) + pad(r.objs, 9) + pad(r.pals + '/8', 13) + pad(r.objTiles + '/256', 14) + pad(r.biomeTiles + '/256', 10) + r.err + '%');
 }
 const worst = Object.entries(biomeOut).sort((a, b) => b[1].tiles.length - a[1].tiles.length)[0];
-console.log(`${AREA_KEYS.length} areas, ${Object.keys(biomeOut).length} biome tilesets (largest ${worst[0]} ${worst[1].tiles.length}/${MAX_STATIC_TILES}), preview ${path.relative(ROOT, path.join(PREVIEW, 'areas.png'))}`);
+console.log(`${AREA_KEYS.length} areas, ${Object.keys(biomeOut).length} tilesets (largest ${worst[0]} ${worst[1].tiles.length}/${MAX_STATIC_TILES}), ${KIND_NAMES.length} sprite kinds, ${songs.length} song(s); previews in ${path.relative(ROOT, PREVIEW)}`);
 try { execFileSync('node', [path.join(ROOT, 'tools', 'validate.js'), '--gbc'], { stdio: 'pipe' }); }
 catch (e) { problems.push('tools/validate.js --gbc failed:\n' + String(e.stdout || e.message).trim()); }
 if (problems.length) { console.error('\n' + problems.join('\n')); process.exit(1); }

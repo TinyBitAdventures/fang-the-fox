@@ -6,3 +6,4 @@ shots/
 gbc/.venv/
 gbc/src/gen/
 gbc/web/rom/
+__pycache__/

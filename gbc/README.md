@@ -2,7 +2,7 @@
 
 A port of [Fang the Fox](../README.md) to the Game Boy Color: a real `.gbc` ROM that runs in emulators (RetroArch, SameBoy, mGBA, a Retroid or any handheld), on a Game Boy Color from a flash cart, and in the browser. It is built from the web game's own maps and data (`../js/data.js`), so both versions stay the same game.
 
-**Status:** in development. The ROM is an area viewer for now: every one of the 24 areas drawn from the real maps, scrolling across the 14-column playfield. What's done and what's next: [CHANGELOG.md](CHANGELOG.md).
+**Status:** in development. Fang walks all 24 areas: doors, the camera, every monster and friend in place, the HUD and a placeholder song. Fighting, items and the story come next. What's done: [CHANGELOG.md](CHANGELOG.md).
 
 ## Play the development build
 
@@ -18,6 +18,8 @@ A port of [Fang the Fox](../README.md) to the Game Boy Color: a real `.gbc` ROM 
 | Fast forward | hold F | |
 
 Touch screens get an on-screen pad. `?curve=1` or `?curve=2` colours the screen like a real GBC's LCD.
+
+Until the menus exist, SELECT jumps to the next area and START to the previous one.
 
 ## Build
 
@@ -37,9 +39,10 @@ The ROM is Color-only, MBC5 with 32 KB of battery-backed save RAM.
 | `tools/build.js` | Reads `../js/data.js` and the sprites, merges `overrides.js`, draws each area's cells, reduces the art to the GBC's limits (4 colours per 8x8 tile, 5 terrain palettes per biome, 256 tiles per biome) and writes the C tables to `src/gen/` plus a preview of every area (`build/preview/areas.png`). Fails the build when an area breaks a budget. |
 | `overrides.js` | Everything the port changes from the web game, each with its reason. `node ../tools/validate.js --gbc` checks the merged maps. |
 | `art/` | GBC art. Same format as the web sprites; a file here replaces the web sprite of the same name. |
-| `src/` | The ROM's C code. `src/gen/` is generated and not in git. |
+| `src/` | The ROM's C code: `game.c` (the port of `js/game.js`: moving, bumping, doors, drawing), `area.c` (loading an area, palettes and fades), `sprites.c`, `hud.c` and `text.c` (the HUD and its font), `audio.c`. `src/gen/` is generated and not in git. |
+| `music/` | Songs, compiled to hUGEDriver data by the build. `lib/hUGEDriver/` is the music driver (public domain). |
 | `web/` | The web player: [binjgb](https://github.com/binji/binjgb) plus controllers, touch, a per-game save and live reload. |
-| `tools/bot/shots.py` | Captures every area from the ROM in [PyBoy](https://github.com/Baekalfen/PyBoy) and checks it matches the build's preview pixel for pixel. |
+| `tools/bot/` | [PyBoy](https://github.com/Baekalfen/PyBoy) tests: `shots.py` (every area's background matches the build's preview pixel for pixel, and the frame budget), `smoke.py` (walking, doors, camera, music), `rom.py` (shared helpers: variables by name from `build/fang.noi`). |
 | `tools/screenshot.js` | Playwright screenshots of the web player, driven frame by frame. |
 
 ## Tests
@@ -47,8 +50,13 @@ The ROM is Color-only, MBC5 with 32 KB of battery-backed save RAM.
     node ../tools/validate.js --gbc                     # maps with the GBC overrides: everything reachable
     python3 -m venv .venv && .venv/bin/pip install pyboy==2.7.0 pillow
     .venv/bin/python tools/bot/shots.py                 # every area from the ROM matches the preview
+    .venv/bin/python tools/bot/smoke.py                 # walking, doors, camera, music
     PW=/path/to/node_modules/playwright OUT=build/shots/web \
       STEPS='[{"hold":["right"],"frames":40,"shot":1},{"press":"select","frames":30,"shot":1}]' node tools/screenshot.js
+
+## Writing C for the Game Boy
+
+SDCC's code for the Game Boy's CPU keeps locals on the stack and has no multiply or divide instructions, so per-frame code here uses arrays indexed by a byte (one array per field) instead of structs, `static` loop variables, shifts instead of `*` and `/`, and GBDK's assembly routines (metasprites) for the heavy lifting. `tools/bot/shots.py` fails if a frame overruns.
 
 ## License
 
