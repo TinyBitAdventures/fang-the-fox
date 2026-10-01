@@ -56,7 +56,7 @@ k.noise.push({ env: 0x71, mode7: true }, { env: 0xA2, table: [[2, null, 0], [0, 
 k.noiseNames.push('perc', 'clap');                                             // the glitchy percussion, the clap
 Object.assign(k.drums, { p: ['E7', 5], c: ['G5', 6] });
 module.exports = {
-  title: 'Forest Exploration (recreation)',
+  title: 'Forest Exploration',
   about: 'Forest Exploration: arranged for the Game Boy by hand in gbc/music/forest_gb.js (a recreation, not a conversion).',
   tempo: 8, bpm: 120, beats: [0, 128], loopFrom: 16,
   ...k,

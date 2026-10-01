@@ -71,7 +71,7 @@ const patterns = {
 }
 
 module.exports = {
-  title: 'Plasma Blast (recreation)',
+  title: 'Plasma Blast',
   about: 'Plasma Blast: arranged for the Game Boy by hand in gbc/music/plasma_gb.js (a recreation, not a conversion).',
   tempo: 7, bpm: 128, beats: [0, 128], loopFrom: 16,
   ...kit(),   // tools/lib/compose.js: dry, hi, echo, pulse, chord, sparkle, rise; bass, sub; kick, snare, hat, open

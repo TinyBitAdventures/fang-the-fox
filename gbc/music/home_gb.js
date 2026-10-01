@@ -75,7 +75,7 @@ const patterns = {};
 }
 
 module.exports = {
-  title: 'Forest Home (recreation)',
+  title: 'Forest Home',
   about: 'Forest Home: arranged for the Game Boy by hand in gbc/music/home_gb.js (a recreation, not a conversion).',
   tempo: 8, bpm: 120, beats: [0, 144], loopFrom: 16,
   ...kit(),   // tools/lib/compose.js: dry, hi, echo, pulse, chord, sparkle, rise; bass, sub; kick, snare, hat, open

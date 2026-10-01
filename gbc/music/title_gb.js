@@ -81,7 +81,7 @@ patterns.groove2 = { p1: join(grooveP1()), p2: join(grooveP2()), wave: join(groo
 }
 
 module.exports = {
-  title: 'Fang the Fox (recreation)',
+  title: 'Fang the Fox',
   about: 'Fang the Fox: arranged for the Game Boy by hand in gbc/music/title_gb.js (a recreation of the title theme, not a conversion).',
   tempo: 7, bpm: 128, beats: [0, 128], loopFrom: 32,
   ...kit(),   // tools/lib/compose.js: dry, hi, echo, pulse, chord, sparkle, rise; bass, sub; kick, snare, hat, open

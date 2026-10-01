@@ -42,10 +42,10 @@ check(rom.pb.memory[0xFF42] == 128 and not rom.pb.memory[0xFF40] & 2, 'holding S
 rom.pb.button_release('select'); rom.tick(4)
 check(rom.pb.memory[0xFF42] == 0 and rom.pb.memory[0xFF40] & 2, 'letting go of SELECT goes back to the game')
 peaks = []
-for _ in range(60):
+for _ in range(240):   # 4 seconds: the songs open with a gated riff alone, silent between its notes
     rom.tick(1, False); a = rom.pb.sound.ndarray
     peaks.append(int(np.abs(a.astype(np.int32)).max()) if a.size else 0)
-check(sum(p > 0 for p in peaks) > 50, 'the music is playing')
+check(sum(p > 0 for p in peaks) > 100, f'the music is playing ({sum(p > 0 for p in peaks)} of 240 frames make sound)')
 # the Goo King: a strong Fang beats him, the Forest Ember drops, the goo door opens
 rom.poke('dbg_goto', 4); rom.tick(60)   # the Goo King's grotto
 rom.poke('fox', 99, 10); rom.poke('fox', 0x2C, 0); rom.poke('fox', 1, 1); rom.poke('fox', 0x2C, 2); rom.poke('fox', 1, 3)

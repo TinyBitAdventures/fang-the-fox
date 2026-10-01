@@ -71,7 +71,7 @@ for (let p = 0; p < BARS / 4; p++) {
 const k = kit();
 k.duty.push({ duty: 1, env: 0x90 }); k.dutyNames.push('soft');   // soft: a steady 25%, the counter-line under the riff
 module.exports = {
-  title: 'Slim Monsters (recreation)',
+  title: 'Slim Monsters',
   about: 'Slim Monsters: arranged for the Game Boy by hand in gbc/music/slims_gb.js (a recreation, not a conversion).',
   tempo: 6, bpm: 163, beats: [0, BARS * 4], loopFrom: LOOP_FROM * 4,
   ...k,
