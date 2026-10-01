@@ -36,10 +36,13 @@
   .pill[data-btn="start"] { left: calc(50% + 8px); }
   .down { filter: brightness(1.5); }
   @media (max-width: 520px) { .bezel { padding: 8px 8px 14px; border-radius: 8px 8px 24px 8px; } }
+  .embed body { padding: 0; gap: 0; justify-content: center; background: var(--screen); }
+  .embed h1, .embed .bar { display: none; }
+  .embed .bezel { padding: 0; border: 0; border-radius: 0; background: none; }
 </style>
 </head>
 <body>
-  <h1>Fang the Fox <span>· Game Boy Color edition, in development</span></h1>
+  <h1>Fang the Fox <span>· Game Boy Color edition</span></h1>
   <div class="bezel"><canvas id="screen" width="160" height="144" aria-label="Game screen"></canvas></div>
   <div id="pad" aria-hidden="true">
     <div id="dpad"></div>

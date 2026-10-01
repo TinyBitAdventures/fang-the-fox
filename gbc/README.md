@@ -6,7 +6,7 @@ A port of [Fang the Fox](../README.md) to the Game Boy Color: a real `.gbc` ROM 
 
 ## Play the development build
 
-`make run` builds the ROM and copies it to `web/rom/fang.gbc`, where the web player picks it up. The player is `web/index.html` served by any web server (locally it is linked into the Cove site at `https://fangthefox.localhost/gbc/`). On localhost it reloads the ROM by itself after every build, and keeps the save.
+`make run` builds the ROM and copies it to `web/rom/FangTheFox.gbc` (the file the website offers for download), where the web player picks it up. The player is `web/index.html` served by any web server (locally it is linked into the Cove site at `https://fangthefox.localhost/gbc/`). On localhost it reloads the ROM by itself after every build, and keeps the save.
 
 | In the game | Game Boy | Keyboard | Controller |
 |-------------|----------|----------|------------|

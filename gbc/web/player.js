@@ -1,6 +1,6 @@
 /*
  * Fang the Fox, Game Boy Color edition: the web player.
- * Runs rom/fang.gbc in binjgb (github.com/binji/binjgb, MIT). The emulator, sound and touch code is
+ * Runs rom/FangTheFox.gbc in binjgb (github.com/binji/binjgb, MIT). The emulator, sound and touch code is
  * adapted from binjgb's docs/simple.js (Copyright (C) 2020 Ben Smith, MIT; parts from GB Studio,
  * Copyright (c) 2019 Chris Maltby, MIT): see vendor/LICENSE.binjgb and vendor/LICENSE.gbstudio.
  *
@@ -10,7 +10,7 @@
  * ?curve=1 or 2 colours the screen like a real GBC's LCD (binjgb's SameBoy / Gambatte curves).
  */
 'use strict';
-const ROM_URL = 'rom/fang.gbc';
+const ROM_URL = 'rom/FangTheFox.gbc';
 const SRAM_KEY = 'fang-gbc-sram';
 const AUDIO_FRAMES = 4096, AUDIO_LATENCY_SEC = 0.1, MAX_UPDATE_SEC = 5 / 60;
 const CPU_TICKS_PER_SECOND = 4194304, TICKS_PER_FRAME = 70224;
@@ -20,6 +20,10 @@ const KEYS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 
 const params = new URLSearchParams(location.search);
 const CURVE = Math.max(0, Math.min(2, +(params.get('curve') || 0)));
 const LIVE = /(^|\.)localhost$|^127\.0\.0\.1$/.test(location.hostname) && params.get('live') !== '0';
+// inside another page's frame (the Tiny Bit Adventures game page) or with ?embed=1: just the screen, filling the frame
+let EMBED = params.get('embed') === '1';
+try { EMBED = EMBED || window.self !== window.top; } catch (e) { EMBED = true; }
+if (EMBED) document.documentElement.classList.add('embed');
 const $ = s => document.querySelector(s);
 let emu = null, romStamp = '';
 
@@ -223,6 +227,11 @@ function flash() { const el = $('#screen'); el.classList.remove('fresh'); void e
 // ---------- layout: the largest whole-number scale that fits ----------
 function fit() {
   const touch = document.body.classList.contains('touch');
+  if (EMBED) {   // fill the frame (the game page sizes it to the screen's 10:9), the pad under it on touch screens
+    const scale = Math.max(1, Math.min(innerWidth / 160, (innerHeight - (touch ? 200 : 0)) / 144));
+    $('#screen').style.width = Math.floor(160 * scale) + 'px'; $('#screen').style.height = Math.floor(144 * scale) + 'px';
+    return;
+  }
   const w = Math.min(innerWidth - 32, 960), h = innerHeight - (touch ? 300 : 200);
   const scale = Math.max(1, Math.floor(Math.min(w / 160, h / 144)));
   $('#screen').style.width = 160 * scale + 'px'; $('#screen').style.height = 144 * scale + 'px';

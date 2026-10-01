@@ -35,7 +35,7 @@ void music_play(uint8_t s) {
   uint8_t bank;
   if (s == music_cur) return;
   music_cur = s;
-  sfx_stop();   // the effect's channels go back to the driver before it starts over
+  sfx_stop();   // sound effects give their channels back first
   bank = song_ref(s, &song);
   __critical {
     uint8_t save = _current_bank;

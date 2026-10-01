@@ -37,8 +37,9 @@ $(ROM): $(GEN_STAMP) $(SRC) $(wildcard src/*.h) Makefile
 
 run: $(ROM)
 	@mkdir -p web/rom
-	@cp $(ROM) web/rom/.fang.gbc.tmp && mv -f web/rom/.fang.gbc.tmp web/rom/fang.gbc
-	@echo "web/rom/fang.gbc updated: https://fangthefox.localhost/gbc/"
+	@rm -f web/rom/fang.gbc
+	@cp $(ROM) web/rom/.FangTheFox.gbc.tmp && mv -f web/rom/.FangTheFox.gbc.tmp web/rom/FangTheFox.gbc
+	@echo "web/rom/FangTheFox.gbc updated: https://fangthefox.localhost/gbc/"
 
 watch:
 	node tools/watch.js
