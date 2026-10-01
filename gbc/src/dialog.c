@@ -10,7 +10,6 @@
 #include <gb/cgb.h>
 #include <string.h>
 #include "game.h"
-#include "version.h"
 #include "gen/ui.inc"
 #include "gen/shop.inc"
 
@@ -270,13 +269,14 @@ void death_close(void) BANKED { win_close(); pal_dim = 0; pal_dirty = 1; }
 
 // the title: the game's name and CONTINUE / NEW GAME over Forest Home
 static uint8_t t_save;
-// the title screen: build.js's picture of the island (title.c) over a five-row box with the menu and the version.
+// the title screen: build.js's picture of the island (title.c) over a five-row box with the menu.
 // It borrows the biome's tiles and BG palettes 0-5 (the display is still off at boot), so tile animation waits;
 // once a choice is made the screen fades out and the area comes back behind the dark (title_close)
 static uint8_t t_out, t_pick;
-static void title_rows(void) {
-  cv_begin(); cv_centre(t_save ? (m_sel ? "  CONTINUE  " : "> CONTINUE <") : "", m_sel ? 2 : 3); cv_end(1);
-  cv_begin(); cv_centre(!t_save || m_sel ? "> NEW GAME <" : "  NEW GAME  ", !t_save || m_sel ? 3 : 2); cv_end(2);
+static void title_rows(void) {   // CONTINUE and NEW GAME on the box's rows 1 and 3, or NEW GAME alone in the middle
+  if (!t_save) { cv_begin(); cv_centre("> NEW GAME <", 3); cv_end(2); return; }
+  cv_begin(); cv_centre(m_sel ? "  CONTINUE  " : "> CONTINUE <", m_sel ? 2 : 3); cv_end(1);
+  cv_begin(); cv_centre(m_sel ? "> NEW GAME <" : "  NEW GAME  ", m_sel ? 3 : 2); cv_end(3);
 }
 void title_open(uint8_t has_save) BANKED {
   t_save = has_save; m_sel = 0; t_out = 0;
@@ -286,8 +286,7 @@ void title_open(uint8_t has_save) BANKED {
   win_open(5);
   cv_mode = CV_MENU;
   for (uint8_t y = 0; y < 5; y++) cv_row(y, y);
-  cv_begin(); cv_end(0); cv_begin(); cv_end(3);
-  cv_begin(); cv_centre("GAME BOY COLOR EDITION " GBC_VERSION, 2); cv_end(4);
+  for (uint8_t r = 0; r < 5; r++) { cv_begin(); cv_end(r); }
   title_rows();
   win_show();
   music_play(MUSIC_TITLE);

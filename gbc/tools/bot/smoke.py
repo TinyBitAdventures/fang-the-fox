@@ -121,7 +121,7 @@ ram = rom.stop(keep=True)
 rom = Rom(start=False, ram=ram)
 check(rom.state() == S_TITLE, 'after switching off, the title offers CONTINUE')
 def title_box():   # the title's menu box (window at y 104) without its two menu rows: nothing under it may show through
-    s = rom.screen()[104:144].astype(int); s[8:24] = 0; return s
+    s = rom.screen()[104:144].astype(int); s[8:32] = 0; return s   # rows 1-3: CONTINUE, NEW GAME
 rom.tick(40); ref, flashes = title_box(), 0   # once the box has finished drawing
 for k in range(20):   # each toggle redraws two rows over a few frames; the sprites under the box must stay hidden
     b = 'down' if k % 2 == 0 else 'up'
