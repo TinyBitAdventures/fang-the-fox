@@ -39,6 +39,8 @@ ctx.Math.random = () => { if (curStep === traceStep) console.log('draw', new Err
 vm.createContext(ctx);
 for (const f of ['palette', 'font', 'sprites-terrain', 'sprites-props', 'sprites-chars', 'sprites-chars2', 'sprites-world2', 'data', 'render', 'game', 'story'])
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'js', f + '.js'), 'utf8').replace(/^(const|let) /gm, 'var '), ctx, { filename: `js/${f}.js` });
+// the GBC's map changes (overrides.js areas), so both sides play the same maps
+for (const [k, v] of Object.entries(require(path.join(__dirname, '..', 'overrides.js')).areas || {})) Object.assign(ctx.AREAS[k], v);
 // the objective banner draws nothing that matters here
 vm.runInContext('showObjective = function () {};', ctx);
 // weather and sparkles draw random numbers the ROM has no use for

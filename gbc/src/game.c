@@ -79,7 +79,7 @@ uint8_t cam_want(int16_t px) {
 // ---------- drawing ----------
 static void draw(void) {
   static int16_t px, py;
-  static uint8_t i, lift, p, left, right, t8, fx, fy, ak, fl, half, bx, by, row, bit, slot, ax, ay, sy, c8;
+  static uint8_t i, lift, p, left, right, t8, fx, fy, ak, fl, half, bx, by, row, bit, slot, ax, ay, sy, c8, nfl;
   static int8_t oy;
   // Fang
   px = fox.x << 4; py = fox.y << 4; lift = 0;
@@ -154,16 +154,18 @@ static void draw(void) {
     spr_x[slot] = bx - cam_x + 8; sy = by - oy; spr_y[slot] = sy + 16;
     { uint8_t r = (uint8_t)(sy - 1) >> 4; if ((spr_row[r] += half >> 2) > 10) spr_over = 1; }
   }
-  // flames on lit braziers (view.js: the last 3 turns of a timed one flicker)
-  for (i = 0; i < brz_n; i++) {
-    if (!lit_t[i] || (lit_t[i] <= 3 && flick) || area_flame_ak == NONE) continue;
-    c8 = brz_cell[i]; bx = (cell_col[c8] << 4) + 8;
+  // flames on lit braziers (view.js: the last 3 turns of a timed one flicker), then the Hearth's two once the story lights it
+  nfl = brz_n + (area_idx == HEARTH_AREA && HAS_FLAG(F_HEARTH) ? 2 : 0);
+  for (i = 0; i < nfl && area_flame_ak != NONE; i++) {
+    if (i < brz_n) { if (!lit_t[i] || (lit_t[i] <= 3 && flick)) continue; c8 = brz_cell[i]; p = flame_f + brz_phase[i]; }
+    else { c8 = HEARTH_CELL + i - brz_n; p = flame_f + i - brz_n; }
+    bx = (cell_col[c8] << 4) + 8;
     if (bx + 8 <= cam_x || bx >= cam_x + 168) continue;
-    p = flame_f + brz_phase[i]; if (p >= 3) p -= 3;
+    if (p >= 3) p -= 3;
     slot = spr_slot(2);
     if (slot == 0xFF) break;
     spr_kind[slot] = area_flame_ak; spr_frame[slot] = p; spr_flip[slot] = 0;
-    spr_x[slot] = bx - cam_x + 8; sy = (cell_row[c8] << 4) + 12 - oy; spr_y[slot] = sy + 16;
+    spr_x[slot] = bx - cam_x + 8; sy = (cell_row[c8] << 4) + (i < brz_n ? 12 : 20) - oy; spr_y[slot] = sy + 16;   // the Hearth's bowl sits lower
     { uint8_t r = (uint8_t)(sy - 1) >> 4; if ((spr_row[r] += 2) > 10) spr_over = 1; }
   }
   dbg_ly[4] = LY_REG;   // after the foes, blocks and flames

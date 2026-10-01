@@ -25,8 +25,15 @@ module.exports = {
   areas: {
     // key: { map: [...], props: [...] } replaces those fields of AREAS[key]
     home: { signs: { 16: "Fang's cottage. Bump into things to talk, open or fight. B eats a fish. SELECT shows the whole area." },   // web: F and P keys
-      landmarks: [{ spr: 'house', cell: 4, w: 3 }] },   // landmarks: the web's props stand behind the grid, off the GBC's screen, so the big ones
-                                                         // take the place of a run of solid cells (cell: the first, w: how many), showing their lower part
+      // landmarks: the web's props stand behind the grid, off the GBC's screen, so the big ones take the place of a
+      // run of solid cells (cell: the first, w: how many) and show their lower part, or hang into the row above.
+      // The Hearth (lit by the story: flame) needs two floor cells beside Grandma turned solid; the two above it
+      // can't be reached any more, and nothing was there
+      map: ['F_T_TTT__&___a', '_T?__T_TT___d_', '_T_T__T__ff___', '___fC_________', '______________', '_T__________s_', '_T_TT_________', 'TTTww___s____d'],
+      landmarks: [{ spr: 'house', cell: 4, w: 3 }, { spr: 'hearth_off', cell: 21, w: 2, flame: true }] },
+    lake_tower: {   // Hoot's tower stands in the lake by the shore, on two water cells (solid either way), over water
+      map: ['__?____SsS___&', '______wwsTT_C_', '___a__wwswww__', 'd____wwwwwww__', '_____wwwww____', '__f__wwwww____', '______wwww__d_', '______wwww____'],
+      landmarks: [{ spr: 'tower', cell: 23, w: 2, floor: 'water_0' }] },
     dark_woods: { landmarks: [{ spr: 'tent', cell: 5, w: 2 }] },   // Rudy's
     secret_den: { landmarks: [{ spr: 'burrow', cell: 6, w: 2 }] },
   },

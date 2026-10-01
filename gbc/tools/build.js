@@ -88,7 +88,7 @@ const ANIM_NAMES = ['none', 'portal', 'liquid', 'void'], ANIM_FRAMES = [0, 8, 16
 function markAt(A, i) {
   for (const m of A.landmarks || []) {
     const k = i - m.cell;
-    if (k >= 0 && k < m.w && ((i / COLS) | 0) === ((m.cell / COLS) | 0)) return { name: m.spr, dx: Math.round((m.w * 16 - spr(m.spr).w) / 2) - k * 16 };
+    if (k >= 0 && k < m.w && ((i / COLS) | 0) === ((m.cell / COLS) | 0)) return { name: m.spr, dx: Math.round((m.w * 16 - spr(m.spr).w) / 2) - k * 16, floor: m.floor };
   }
   return null;
 }
@@ -179,7 +179,7 @@ function composeCell(key, A, i, a, b, fa, fb) {
   const art = lookArt(A, i, a, fa);
   if (art.flat) blit(cell, 16, 16, art.flat, 0, 0);
   if (art.tall) { const s = spr(art.tall); blit(cell, 16, 16, art.tall, Math.round(8 - s.w / 2), 16 - s.h); }
-  if (art.mark) blit(cell, 16, 16, art.mark.name, art.mark.dx, 16 - spr(art.mark.name).h);
+  if (art.mark) { if (art.mark.floor) blit(cell, 16, 16, art.mark.floor, 0, 0); blit(cell, 16, 16, art.mark.name, art.mark.dx, 16 - spr(art.mark.name).h); }
   if (art.fog) { blit(cell, 16, 16, art.fog, 0, 0); blit(cell, 16, 16, art.fog, 0, -3); }
   if (b !== null) {
     const below = lookArt(A, i + COLS, b, fb);
@@ -411,7 +411,7 @@ for (const key of AREA_KEYS) {
     else if (ch === '@') o.blocks.push(i);
   });
   o.blockAk = o.blocks.length ? use(blockKind(A)) : 0xFF;
-  o.flameAk = flat.includes('*') ? use('flame') : 0xFF;
+  o.flameAk = flat.includes('*') || (A.landmarks || []).some(m => m.flame) ? use('flame') : 0xFF;   // braziers, the Hearth
   if (o.blocks.length > 4) problems.push(`${key}: ${o.blocks.length} blocks (4 at most)`);
   if ([...flat].filter(ch => ch === '*').length > 6) problems.push(`${key}: more than 6 braziers`);
   // fish drop from ordinary kills (not in areas with pressure plates: js/game.js killEnemy)
@@ -448,7 +448,7 @@ for (const key of AREA_KEYS) {
   o.kitAk = key === 'home' ? used.indexOf('kit') : 0xFF;   // rescued kits stand at home (js placeKits)
   // pressure: sprites on one row (plus Fang), sprites in all
   let rowObjs = 0, objs = kinds.fox.cols * kinds.fox.rows;
-  const things = o.enemies.map(e => ({ cell: e.cell, K: kinds[mKind(MT[e.type])] })).concat(o.npcs.map(n => ({ cell: n.cell, K: kinds[used[n.kind]] })), o.items.map(t => ({ cell: t.cell, K: kinds[iKind(IT[t.code - 1])] })), o.blocks.map(c => ({ cell: c, K: kinds[blockKind(A)] })), [...flat].map((ch, i) => (ch === '*' ? { cell: i, K: kinds.flame } : null)).filter(Boolean));
+  const things = o.enemies.map(e => ({ cell: e.cell, K: kinds[mKind(MT[e.type])] })).concat(o.npcs.map(n => ({ cell: n.cell, K: kinds[used[n.kind]] })), o.items.map(t => ({ cell: t.cell, K: kinds[iKind(IT[t.code - 1])] })), o.blocks.map(c => ({ cell: c, K: kinds[blockKind(A)] })), [...flat].map((ch, i) => (ch === '*' ? { cell: i, K: kinds.flame } : null)).filter(Boolean), (A.landmarks || []).filter(m => m.flame).flatMap(m => [0, 1].map(k => ({ cell: m.cell - COLS + k, K: kinds.flame }))));
   for (let y = 0; y < ROWS; y++) { let n = 0; for (const t of things) if (((t.cell / COLS) | 0) === y) n += t.K.cols; rowObjs = Math.max(rowObjs, n); }
   for (const t of things) objs += t.K.cols * t.K.rows;
   report.push({ key, biome: A.biome, rowObjs, objs, pals: slot, objTiles: o.objTiles, biomeTiles: biomeOut[A.biome].order.length, metas: o.meta.length / 8, err: (100 * biomeOut[A.biome].errPx / biomeOut[A.biome].px).toFixed(1) });
@@ -621,6 +621,7 @@ for (const s of songs) emit(`song_${s}.c`, SONG.compile(s, require(path.join(GBC
 const chFlags = new Array(128).fill(0);
 for (let c = 32; c < 128; c++) { const ch = String.fromCharCode(c), T = TERRAIN[ch]; if (ch === '#' || ch === '~' || (T && T.solid)) chFlags[c] |= 1; if (ch === '~') chFlags[c] |= 2; if (ch === 'd' || ch === 'D') chFlags[c] |= 4; if (ch === 'w') chFlags[c] |= 8; }
 const usedBiomes = BIOME_KEYS.filter(b => biomeOut[b]);
+const hearth = (() => { for (const [a, k] of AREA_KEYS.entries()) { const m = (AREAS[k].landmarks || []).find(l => l.flame); if (m) return [a, m.cell - COLS]; } return [255, 255]; })();
 // cells.c's fast path: the look of a tile that always looks the same (0xFF: it depends on the game's
 // state), and the looks whose picture reaches into the cell above (a change there redraws that cell too)
 const CONDITIONAL = '+vodD';
@@ -639,7 +640,7 @@ write('sfx_data.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   `const sfx_t sfx_table[SFX_COUNT] = { ${sfxNotes.map((notes, i) => `{ ${notes.length}, ${notes.reduce((a, n) => Math.max(a, n.at + n.frames), 0)}, sfx_${i} }`).join(', ')} };\n`);
 write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h>\n#include <gb/gb.h>\n#include <gb/cgb.h>\n\n` +
   `#define AREA_COUNT ${AREA_KEYS.length}\n#define KIND_COUNT ${KIND_NAMES.length}\n#define TYPE_COUNT ${MT.length}\n#define ITEM_COUNT ${IT.length}\n#define PERK_COUNT ${PERK_KEYS.length}\n#define FLAG_COUNT ${FLAGS.length}\n#define RELIC_COUNT ${relicCount}\n` +
-  `#define SFX_COUNT ${SFX_NAMES.length}\n#define SONG_COUNT ${songs.length}\n#define MUSIC_TITLE ${songOf('title')}\n#define MUSIC_WIN ${songOf('win')}   // falling, the credits\n#define MAX_ENEMIES ${MAX_ENEMIES}\n#define MAX_ITEMS ${MAX_ITEMS}\n` +
+  `#define SFX_COUNT ${SFX_NAMES.length}\n#define SONG_COUNT ${songs.length}\n#define MUSIC_TITLE ${songOf('title')}\n#define MUSIC_WIN ${songOf('win')}   // falling, the credits\n#define HEARTH_AREA ${hearth[0]}\n#define HEARTH_CELL ${hearth[1]}   // the Hearth's two flames stand in this cell and the next once the story lights it (the cells its art hangs into)\n#define MAX_ENEMIES ${MAX_ENEMIES}\n#define MAX_ITEMS ${MAX_ITEMS}\n` +
   `#define COLS ${COLS}\n#define ROWS ${ROWS}\n#define CELLS ${COLS * ROWS}\n#define AREA_W 28   // tiles\n#define AREA_H 16\n` +
   `#define UI_TILES ${UI_TILES.length}\n#define OVERVIEW_TILES ${OVERVIEW_TILES.length}\n#define DLG_TILES ${DLG_TILES.length}\n#define KIND_FOX ${kinds.fox.id}\n` +
   `#define SPEAKER_COUNT ${SPEAKER_IDS.length}\n#define PORTRAIT_COUNT ${portraits.length}\n#define SHOP_COUNT ${SHOP.length}\n` + defs('SP_', SPEAKER_IDS) + defs('SHOP_', SHOP.map(s => s.id)) + defs('AR_', AREA_KEYS) +
