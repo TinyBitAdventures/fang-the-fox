@@ -6,7 +6,7 @@
 - `tools/validate.js --gbc` checks the maps with the Game Boy Color edition's overrides (`gbc/overrides.js`) merged in, and the validator now exits non-zero when it finds a problem.
 
 ### Game Boy Color edition
-- Work has started on a Game Boy Color port in `gbc/`, built from this game's own maps and data. See `gbc/CHANGELOG.md`.
+- Fang the Fox for the Game Boy Color, built from this game's own maps and data in `gbc/`: version 1.0.0. See `gbc/CHANGELOG.md`.
 
 ## v1.0.0 (2026-09-24)
 

@@ -1,2 +1,2 @@
-// Fang the Fox, Game Boy Color edition. Shown on the title screen; bump it with gbc/CHANGELOG.md.
-#define GBC_VERSION "0.1.0-dev"
+// Fang the Fox, Game Boy Color edition: the release version (tags gbc-vX.Y.Z); bump it with gbc/CHANGELOG.md.
+#define GBC_VERSION "1.0.0"

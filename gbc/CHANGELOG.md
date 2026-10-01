@@ -1,6 +1,30 @@
 # Changelog: Game Boy Color edition
 
-## Unreleased
+## v1.0.0 (2026-09-30)
+
+The Game Boy Color edition: all of Fang the Fox as a real Game Boy Color game. It plays on handhelds like the Retroid Pocket, in Game Boy Color emulators and in your browser.
+
+### The adventure
+- The whole web game: 24 floating islands, the five Ember bosses and the Primordial, Grandma, Hoot, Rudy, Lumen and the Fairy Queen, every puzzle, perk, relic and lost kit, from Fang's nap to the credits.
+- The same rules as the web game, checked step by step against it.
+- Saves to the cartridge in two slots that take turns, so a save cut short by the power never costs you the other.
+
+### Made for the Game Boy Color
+- Every island redrawn within the Game Boy Color's limits and kept at night: each place takes the web game's lighting into its colours, while lava, crystals and portals glow.
+- Fang's cottage, the Hearth that lights up at the end, Hoot's tower, Rudy's tent and the burrow stand on their islands.
+- A title screen with Forest Home floating in the night sky.
+- A pause screen with a world map, your quest, Fang's stats and perks, and options for music, sound effects, volume and screen shake.
+- Hold SELECT to see the whole island at once; arrows at the screen's edge point to foes out of view.
+
+### Music
+- The Tiny Bit Adventures album recreated by hand for the Game Boy's four sound channels: Fang the Fox, Forest Home, Forest Exploration, Slim Monsters and Plasma Blast. A sound test on the options page plays any of them.
+
+### Controls
+- The D-pad moves, attacks and talks. A is Fire Spin, B eats a fish, START opens the pause screen and SELECT shows the whole island.
+
+Read how it was made: [Fang the Fox on the Game Boy Color, built with Opus 5.5](https://tinybitadventures.com/fang-the-fox-on-the-game-boy-color/).
+
+## Development log
 
 The start of the port: all 24 areas with the web game's maps and doors, turn-based combat with every monster's rules, items, levels, puzzles and a world that changes as you play, the story with every character, the shop, perk picks and saving, a pause screen with a world map, the ending and credits, a HUD, sound effects and music, playable from the title to the credits and in the browser as it's built.
 
