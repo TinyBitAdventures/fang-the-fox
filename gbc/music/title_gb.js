@@ -105,7 +105,7 @@ patterns.groove2 = { p1: join(grooveP1()), p2: join(grooveP2()), wave: join(groo
 
 module.exports = {
   title: 'Fang the Fox (recreation)',
-  about: 'Fang the Fox: arranged for the Game Boy by hand in gbc/music/fang.js (a recreation of the title theme, not a conversion).',
+  about: 'Fang the Fox: arranged for the Game Boy by hand in gbc/music/title_gb.js (a recreation of the title theme, not a conversion).',
   tempo: 7, bpm: 128, beats: [0, 128], loopFrom: 32,
   duty: [
     { duty: 2, env: 0xB0 },                    // dry: the riff, as the conversion's lead (steady, cut by the rows)

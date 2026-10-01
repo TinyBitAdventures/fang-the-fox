@@ -56,7 +56,7 @@ Each song comes from its Bitwig project on the album. `music/<song>.map.js` list
     node tools/music.js home --import       # import the Bitwig project again first
     .venv/bin/python tools/bot/songs.py     # record every song from the ROM into build/songs/
 
-A song can also be written by hand: `music/fang.js` recreates the title theme for the four channels (its own parts, instruments with per-frame tables, a loop back with `Bxx`) instead of converting it note for note.
+A song can also be written by hand: `music/title_gb.js` recreates the title theme for the four channels (its own parts, instruments with per-frame tables, a loop back with `Bxx`) instead of converting it note for note.
 
 In the game, the pause screen's OPTIONS page has a SOUND TEST: left and right play any song.
 
