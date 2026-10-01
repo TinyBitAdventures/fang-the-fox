@@ -54,6 +54,7 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - Budget report (`make report`): sprites per row, total sprites and monster types per area, tiles per biome and how much of the art was recoloured (1-8% of pixels so far).
 - `overrides.js` holds every change from the web game; `../tools/validate.js --gbc` checks the maps with them merged in.
 - Each biome has the web game's night: its lighting (the biome's ambient colour at the web's strength) is baked into the terrain palettes, a share per biome in `overrides.js` (`look`), while sprites stay fully lit as the web's light pools keep them. Lava, fire, crystals, portals and blossoms keep their full glow, and the volcanic ground takes the lava's red.
+- Landmarks: Fang's cottage in Forest Home, Rudy's tent in the Dark Woods and the burrow in the Secret Den stand in the top row in place of trees (the web game draws its props behind the grid, which the GBC's screen doesn't show). The cells stay solid as before, so play is unchanged.
 - The terrain palette solver refines its first answer, weighing each kind of tile by the square root of how often it's used, so signs stay wooden brown and anvils, gates and portals keep their colours instead of taking the grass's.
 
 ### Web player

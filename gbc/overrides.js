@@ -23,7 +23,11 @@ module.exports = {
   },
   areas: {
     // key: { map: [...], props: [...] } replaces those fields of AREAS[key]
-    home: { signs: { 16: "Fang's cottage. Bump into things to talk, open or fight. B eats a fish. SELECT shows the whole area." } },   // web: F and P keys
+    home: { signs: { 16: "Fang's cottage. Bump into things to talk, open or fight. B eats a fish. SELECT shows the whole area." },   // web: F and P keys
+      landmarks: [{ spr: 'house', cell: 4, w: 3 }] },   // landmarks: the web's props stand behind the grid, off the GBC's screen, so the big ones
+                                                         // take the place of a run of solid cells (cell: the first, w: how many), showing their lower part
+    dark_woods: { landmarks: [{ spr: 'tent', cell: 5, w: 2 }] },   // Rudy's
+    secret_den: { landmarks: [{ spr: 'burrow', cell: 6, w: 2 }] },
   },
   // js/story.js lines that name the web game's keys, as gbc/src/story.c says them (the build checks that
   // every other line of story.js appears in story.c word for word)

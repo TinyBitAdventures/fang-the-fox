@@ -83,7 +83,17 @@ const MAX_CELL_LOOKS = 5;
 // A lit brazier's flame is a sprite (kind "flame") over the cold brazier: its colours never fit a
 // background palette next to the floor.
 const ANIM_NAMES = ['none', 'portal', 'liquid', 'void'], ANIM_FRAMES = [0, 8, 16, 24];   // 140, 260, 400 ms
+// landmarks (overrides.js areas: landmarks): a big web prop (the cottage, Rudy's tent...) drawn across a run of
+// solid cells in one row, each cell its slice; the cells stay what they were, so play is unchanged
+function markAt(A, i) {
+  for (const m of A.landmarks || []) {
+    const k = i - m.cell;
+    if (k >= 0 && k < m.w && ((i / COLS) | 0) === ((m.cell / COLS) | 0)) return { name: m.spr, dx: Math.round((m.w * 16 - spr(m.spr).w) / 2) - k * 16 };
+  }
+  return null;
+}
 function lookArt(A, i, look, f) {   // what a look draws at animation frame f (0-2)
+  if ([L.ROCK, L.BRICK, L.SNOWWALL, L.BASALT, L.TREE].includes(look)) { const mark = markAt(A, i); if (mark) return { mark }; }
   const gx = i % COLS, gy = (i / COLS) | 0, d = A.doors[i], style = d ? d.style : 'hole';
   switch (look) {
     case L.ICE: return { flat: 'ice' };
@@ -169,6 +179,7 @@ function composeCell(key, A, i, a, b, fa, fb) {
   const art = lookArt(A, i, a, fa);
   if (art.flat) blit(cell, 16, 16, art.flat, 0, 0);
   if (art.tall) { const s = spr(art.tall); blit(cell, 16, 16, art.tall, Math.round(8 - s.w / 2), 16 - s.h); }
+  if (art.mark) blit(cell, 16, 16, art.mark.name, art.mark.dx, 16 - spr(art.mark.name).h);
   if (art.fog) { blit(cell, 16, 16, art.fog, 0, 0); blit(cell, 16, 16, art.fog, 0, -3); }
   if (b !== null) {
     const below = lookArt(A, i + COLS, b, fb);
@@ -177,6 +188,7 @@ function composeCell(key, A, i, a, b, fa, fb) {
       const clip = s.h > 18 && isDoorLook(a) && !isDoorLook(b) ? 14 : 0;   // a tall obstacle never hides the doorway above it
       blit(cell, 16, 16, below.tall, Math.round(8 - s.w / 2), 32 - s.h, clip);
     }
+    if (below.mark) blit(cell, 16, 16, below.mark.name, below.mark.dx, 32 - spr(below.mark.name).h);
   }
   return cell;
 }
