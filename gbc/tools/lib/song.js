@@ -29,7 +29,7 @@ function channelRows(src, rows, defIns, drums, insNames = []) {
   return toks.map(tok => {
     const [t, fxs] = tok.split('~'), fx = fxs ? parseInt(fxs, 16) : 0;
     if (t === '.') return row(HOLD, 0, fx);
-    if (t === '-') return row(HOLD, 0, 0xE00);   // Exx: cut the note after xx ticks
+    if (t === '-') { if (fxs) throw new Error(`a cut (-) already uses the row's effect: ${tok}`); return row(HOLD, 0, 0xE00); }   // Exx: cut the note after xx ticks
     if (drums && drums[t]) { const [n, ins] = drums[t]; return row(note(n), ins, fx); }
     const [n, ins] = t.split(':');
     const i = ins === undefined ? defIns : /^\d+$/.test(ins) ? +ins : insNames.indexOf(ins) + 1;

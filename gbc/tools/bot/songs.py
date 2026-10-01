@@ -33,23 +33,26 @@ def record(target):
     while rom.u8('music_cur') != (target - 1) % COUNT: rom.tap('right', 8)
     seconds = song_info(SONGS[target])[0] + 1.5
     rate = rom.pb.sound.sample_rate
-    chunks = []
+    chunks, orders = [], []
+    order = rom.sym['hUGE_mute_mask'] + 6   # hUGEDriver's current_order (x2), a few bytes on from its mute mask
     rom.pb.button_press('right')
     for f in range(int(seconds * FPS)):
         if f == 2: rom.pb.button_release('right')
         rom.tick(1, False)
         a = rom.pb.sound.ndarray
         if a.size: chunks.append(a.copy())
+        o = rom.pb.memory[order] // 2
+        if not orders or orders[-1] != o: orders.append(o)
     assert rom.u8('music_cur') == target, f'the sound test did not reach song {target}'
     rom.stop()
     pcm = np.concatenate(chunks).astype(np.int16) * 256
     lead = np.argmax(np.abs(pcm).max(axis=1) > 0)   # from the song's first sound
-    return pcm[lead:], rate
+    return pcm[lead:], rate, orders
 
 OUT.mkdir(parents=True, exist_ok=True)
 for i, name in enumerate(SONGS):
     if sys.argv[1:] and name not in sys.argv[1:]: continue
-    pcm, rate = record(i)
+    pcm, rate, orders = record(i)
     path = OUT / f'{name}.wav'
     with wave.open(str(path), 'wb') as w:
         w.setnchannels(2); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm.tobytes())
@@ -61,4 +64,4 @@ for i, name in enumerate(SONGS):
         af = 'highpass=f=20:p=1,volume=10dB' + (f',afade=t=out:st={fade_at:.2f}:d={FADE},atrim=0:{fade_at + FADE:.2f}' if fade_at else '')
         subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(path), '-af', af, '-ac', '1', '-b:a', '128k', str(path.with_suffix('.mp3'))], check=True)
         line += f', {path.with_suffix(".mp3").stat().st_size / 1e6:.1f} MB mp3'
-    print(line)
+    print(line + '\n  order positions played: ' + ' '.join(map(str, orders)))
