@@ -4,8 +4,8 @@ module.exports = {
   // the web game's ten album songs, played by the five converted for the Game Boy (Austin, 2026-09-30):
   // each web song key (TRACKS, AREAS[..].music) to the one that plays in its place; the title screen plays
   // music/title_gb.js, the theme recreated for the Game Boy by hand (the conversion, title, stays in the sound test)
-  music: { title: 'title_gb', home: 'home_gb', forest: 'forest_gb', slims: 'slims', plasma: 'plasma',
-    battle: 'slims', win: 'plasma', dream: 'forest_gb', blitz: 'slims', void: 'plasma' },
+  music: { title: 'title_gb', home: 'home_gb', forest: 'forest_gb', slims: 'slims_gb', plasma: 'plasma',
+    battle: 'slims_gb', win: 'plasma', dream: 'forest_gb', blitz: 'slims_gb', void: 'plasma' },
   // the web game's lighting (render.js applyLighting: each biome's ambient colour over everything at B.dark,
   // with light pools around Fang, friends, foes, items and lamps), baked into the terrain palettes: light is
   // how much of that darkness they take (sprites stay fully lit, as the pools keep them on the web), tint mixes
