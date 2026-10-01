@@ -46,8 +46,11 @@ static void emit(void) {
   else oam += __move_metasprite(oam, ((uint16_t)spr_y[s] << 8) | spr_x[s]);
 }
 
+// the VBlank interrupt copies shadow_OAM to the screen; a frame that runs long (a menu redrawn) can reach VBlank
+// halfway through, after the sprites are written and before the ones under a box are hidden, so the copy waits
 void spr_flush(void) {
   static uint8_t i, j, m;
+  DISABLE_OAM_DMA;
   oam = 0;
   for (i = 0; i < count[0]; i++) { s = order[0][i]; emit(); }
   for (i = 0; i < count[1]; i++) { s = order[1][i]; emit(); }
@@ -61,4 +64,5 @@ void spr_flush(void) {
   if (oam > 40) oam = 40;
   hide_sprites_range(oam, 40);
   if (spr_clip) for (i = 0; i < oam; i++) if (shadow_OAM[i].y > spr_clip) shadow_OAM[i].y = 0;   // under the dialogue box or a menu
+  ENABLE_OAM_DMA;
 }

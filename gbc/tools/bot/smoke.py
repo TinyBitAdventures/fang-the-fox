@@ -120,6 +120,14 @@ saved = (rom.area(), rom.fox(), rom.u8('fish'), rom.u8('gems'), perks)
 ram = rom.stop(keep=True)
 rom = Rom(start=False, ram=ram)
 check(rom.state() == S_TITLE, 'after switching off, the title offers CONTINUE')
+def title_box():   # the title box (window at y 72) without its two menu rows: nothing under it may show through
+    s = rom.screen()[72:144].astype(int); s[32:48] = 0; return s
+rom.tick(40); ref, flashes = title_box(), 0   # once the box has finished drawing
+for k in range(20):   # each toggle redraws two rows over a few frames; the sprites under the box must stay hidden
+    b = 'down' if k % 2 == 0 else 'up'
+    rom.pb.button_press(b); rom.tick(1); rom.pb.button_release(b)
+    for _ in range(14): rom.tick(1); flashes += bool(np.abs(title_box() - ref).sum())
+check(flashes == 0, f'toggling CONTINUE / NEW GAME shows nothing through the title box ({flashes} frames did)')
 rom.tap('a', 60)
 now = (rom.area(), rom.fox(), rom.u8('fish'), rom.u8('gems'), rom.u8('perks') | rom.u8('perks', 1) << 8)
 check(rom.state() == S_PLAY and now == saved, f'CONTINUE puts Fang back where he was, with his fish, gems and perks {now}')

@@ -41,6 +41,8 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - The credits roll after the ending (the web game's list, then Fang's level, kills, turns, kits and relics); A speeds them up, then Fang wakes at home with the ending seen.
 - A "!" bobs over friends with something new to say, and the cells the Dragon's breath will burn blink red until it lands.
 
+- Fixed: sprites under the title box (or any box or menu) could flash for a frame when the box was redrawn; the VBlank copy of the sprites now waits until they're all placed.
+
 ### Build
 - Sprites: every kind of thing that moves (Fang, 5 friends, the kits, 25 monsters and bosses) cut into 8x16 pieces with 3 colours each (bosses get 2 palettes), placed in VRAM per area with its palettes; `build/preview/sprites.png` shows them all.
 - Areas carry their cells, doors (target, arrival cell, what they need, their names) and everything standing in them; 7 of 8 sprite palettes at most (Fairy Glade, the World Tree).
