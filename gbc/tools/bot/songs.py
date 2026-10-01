@@ -3,7 +3,7 @@
 # captures the emulated sound chip for one pass of the song (PyBoy; binjgb in the web player may differ
 # a little). Writes build/songs/<song>.wav as the chip made it, and a mono .mp3 for listening when ffmpeg is there.
 # usage: gbc/.venv/bin/python gbc/tools/bot/songs.py [song ...]
-import re, sys, shutil, subprocess, wave
+import json, re, sys, shutil, subprocess, wave
 import numpy as np
 from rom import Rom, GBC, S_PAUSE
 
@@ -14,11 +14,10 @@ OUT = GBC / 'build/songs'
 FPS = 4194304 / 70224   # frames a second
 assert len(SONGS) == COUNT, f'{len(SONGS)} songs in music/, {COUNT} in the ROM: run make first'
 
-def song_info(name):
-    js = (GBC / 'music' / f'{name}.js').read_text()
-    beats = re.search(r'"beats": \[\s*([\d.]+),\s*([\d.]+)', js)
-    bpm = float(re.search(r'"bpm": ([\d.]+)', js).group(1))
-    return (float(beats.group(2)) - float(beats.group(1))) * 60 / bpm
+def song_info(name):   # seconds for one pass; a song that loops back to loopFrom gets 8 more beats, to hear the seam
+    s = json.loads(subprocess.run(['node', '-e', f"const s = require({json.dumps(str(GBC / 'music' / name))}); console.log(JSON.stringify({{ beats: s.beats, bpm: s.bpm, loopFrom: s.loopFrom }}))"], capture_output=True, text=True, check=True).stdout)
+    beats = s['beats'][1] - s['beats'][0] + (8 if s.get('loopFrom') is not None else 0)
+    return beats * 60 / s['bpm']
 
 def record(target):
     rom = Rom(sound=True)

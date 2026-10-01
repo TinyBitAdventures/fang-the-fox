@@ -24,7 +24,7 @@ const COLS = 14, ROWS = 8, CELLS_N = COLS * ROWS, GX = 80, GY = 54;   // web gri
 const AREA_KEYS = Object.keys(AREAS), BIOME_KEYS = Object.keys(BIOMES), TRACK_KEYS = Object.keys(TRACKS);
 // the songs converted for the Game Boy (music/<song>.js, from tools/music.js), and which plays for each web song key
 const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js') && !f.endsWith('.map.js') && f !== 'sfx.js').map(f => f.slice(0, -3)).sort();
-const songTitle = s => require(path.join(GBC, 'music', s + '.js')).about.split(':')[0].replace(/^\d{4}-\d\d-\d\d /, '').toUpperCase();   // "2022-10-30 Forest Home" -> FOREST HOME
+const songTitle = s => { const m = require(path.join(GBC, 'music', s + '.js')); return (m.title || m.about.split(':')[0].replace(/^\d{4}-\d\d-\d\d /, '')).toUpperCase(); };   // "2022-10-30 Forest Home" -> FOREST HOME
 const songOf = key => { const s = (OV.music || {})[key] || key; if (!songs.includes(s)) throw new Error(`no Game Boy song for "${key}" (music/${s}.js)`); return songs.indexOf(s); };
 const TERRAIN_PALS = 5, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
 // biome mood: the web game lays each biome's ambient colour over everything at B.dark strength and cuts light
