@@ -31,6 +31,9 @@ module.exports = {
       // can't be reached any more, and nothing was there
       map: ['F_T_TTT__&___a', '_T?__T_TT___d_', '_T_T__T__ff___', '___fC_________', '______________', '_T__________s_', '_T_TT_________', 'TTTww___s____d'],
       landmarks: [{ spr: 'house', cell: 4, w: 3 }, { spr: 'hearth_off', cell: 21, w: 2, flame: true }] },
+    slime_pond: {   // three slimes from the top row one or two rows down: the row showed 6 slimes (12 sprites a line, 10 is the
+      // GBC's limit) and flickered; now no 11 columns of any row ask for more than 10 with Fang and the edge arrows
+      map: ['_______SsS__a_', 'sss___wwsww___', 'ss____wwsww__&', 'd____wwwwwww__', '_____wwwww____', '__?__wwwww_C__', '______wwww__d_', '_____f_wwww___'] },
     lake_tower: {   // Hoot's tower stands in the lake by the shore, on two water cells (solid either way), over water
       map: ['__?____SsS___&', '______wwsTT_C_', '___a__wwswww__', 'd____wwwwwww__', '_____wwwww____', '__f__wwwww____', '______wwww__d_', '______wwww____'],
       landmarks: [{ spr: 'tower', cell: 23, w: 2, floor: 'water_0' }] },

@@ -449,7 +449,18 @@ for (const key of AREA_KEYS) {
   // pressure: sprites on one row (plus Fang), sprites in all
   let rowObjs = 0, objs = kinds.fox.cols * kinds.fox.rows;
   const things = o.enemies.map(e => ({ cell: e.cell, K: kinds[mKind(MT[e.type])] })).concat(o.npcs.map(n => ({ cell: n.cell, K: kinds[used[n.kind]] })), o.items.map(t => ({ cell: t.cell, K: kinds[iKind(IT[t.code - 1])] })), o.blocks.map(c => ({ cell: c, K: kinds[blockKind(A)] })), [...flat].map((ch, i) => (ch === '*' ? { cell: i, K: kinds.flame } : null)).filter(Boolean), (A.landmarks || []).filter(m => m.flame).flatMap(m => [0, 1].map(k => ({ cell: m.cell - COLS + k, K: kinds.flame }))));
-  for (let y = 0; y < ROWS; y++) { let n = 0; for (const t of things) if (((t.cell / COLS) | 0) === y) n += t.K.cols; rowObjs = Math.max(rowObjs, n); }
+  // sprites on one line at worst: what an 11-column window of the camera shows of a row (off-screen ones are
+  // moved out of the way), Fang, and an edge arrow each side for foes out of view on that row
+  const foeCells = new Set(o.enemies.map(e => e.cell));
+  for (let y = 0; y < ROWS; y++) for (let c = 0; c + 11 <= COLS + 1; c++) {
+    let n = kinds.fox.cols, left = 0, right = 0;
+    for (const t of things) {
+      if (((t.cell / COLS) | 0) !== y) continue;
+      const x = t.cell % COLS;
+      if (x < c) left |= foeCells.has(t.cell); else if (x > c + 10) right |= foeCells.has(t.cell); else n += t.K.cols;
+    }
+    rowObjs = Math.max(rowObjs, n + left + right);
+  }
   for (const t of things) objs += t.K.cols * t.K.rows;
   report.push({ key, biome: A.biome, rowObjs, objs, pals: slot, objTiles: o.objTiles, biomeTiles: biomeOut[A.biome].order.length, metas: o.meta.length / 8, err: (100 * biomeOut[A.biome].errPx / biomeOut[A.biome].px).toFixed(1) });
 }
@@ -733,7 +744,7 @@ G.png(path.join(PREVIEW, 'areas.png'), SHEET_COLS * (CW + 4), Math.ceil(AREA_KEY
 const pad = (s, n) => String(s).padEnd(n);
 if (REPORT || problems.length) {
   console.log(pad('area', 18) + pad('row sprites', 13) + pad('sprites', 9) + pad('sprite pals', 13) + pad('sprite tiles', 14) + pad('bg tiles', 10) + pad('metatiles', 11) + 'recoloured');
-  for (const r of report) console.log(pad(r.key, 18) + pad(r.rowObjs + 2 + (r.rowObjs + 2 > 10 ? ' !' : ''), 13) + pad(r.objs, 9) + pad(r.pals + '/8', 13) + pad(r.objTiles + '/256', 14) + pad(r.biomeTiles + '/' + MAX_BG_TILES, 10) + pad(r.metas, 11) + r.err + '%');
+  for (const r of report) console.log(pad(r.key, 18) + pad(r.rowObjs + (r.rowObjs > 10 ? ' !' : ''), 13) + pad(r.objs, 9) + pad(r.pals + '/8', 13) + pad(r.objTiles + '/256', 14) + pad(r.biomeTiles + '/' + MAX_BG_TILES, 10) + pad(r.metas, 11) + r.err + '%');
   for (const [b, o] of Object.entries(biomeOut)) if (o.segments.length) console.log(`${b}: animated ${o.segments.map(sg => `${ANIM_NAMES[sg.anim]} ${sg.tiles.length}`).join(', ')}`);
   console.log(`item palettes: ${ITEM_PALS.map((p, i) => `${i}${i === EFFECTS_ITEM_PAL ? ' (effects)' : ''}: ${IT.filter(k => itemPalOf[k] === i).join('')}`).join(' | ')}`);
 }
