@@ -29,7 +29,7 @@ module.exports = function gfx(PAL) {
     return t.map(k => (k === null ? null : f(k)));
   }
   // group tiles' colour sets into at most K palettes of size colours each (dark to light)
-  function solvePalettes(tiles, K, size = 4) {
+  function solvePalettes(tiles, K, size = 4, tune = false) {   // tune: refine (terrain; sprites look better without)
     const sets = new Map();
     for (const t of tiles) { const cols = [...new Set(t.filter(k => k !== null))].sort(), id = cols.join(''); if (!cols.length) continue; const s = sets.get(id) || { cols, w: 0, px: {} }; s.w++; for (const k of t) if (k !== null) s.px[k] = (s.px[k] || 0) + 1; sets.set(id, s); }
     const order = [...sets.values()].sort((a, b) => b.cols.length - a.cols.length || b.w - a.w);
@@ -40,7 +40,32 @@ module.exports = function gfx(PAL) {
       if (best) s.cols.forEach(c => best.add(c)); else if (pals.length < K) pals.push(new Set(s.cols)); else left.push(s);
     }
     for (const s of left) for (const p of pals.filter(p => p.size < size)) { const miss = s.cols.filter(c => !p.has(c)).sort((a, b) => s.px[b] - s.px[a]); while (p.size < size && miss.length) p.add(miss.shift()); }
-    return pals.map(p => [...p].sort((a, b) => luma(a) - luma(b)));
+    return (tune ? refine([...sets.values()], pals.map(p => [...p]), size) : pals.map(p => [...p])).map(p => p.sort((a, b) => luma(a) - luma(b)));
+  }
+  // then k-means over the palettes: each colour set goes to the palette that draws it best, and each palette
+  // swaps colours while that lowers the error of the sets it draws. A set counts by the square root of how
+  // many tiles use it, so a sign or an anvil isn't outvoted by a few hundred grass tiles.
+  function refine(sets, pals, size) {
+    const setErr = (s, p) => { if (!p.length) return Infinity; let e = 0; for (const k of s.cols) e += s.px[k] * dist(k, nearest(k, p)); return e / Math.sqrt(s.w); };
+    const total = (members, p) => members.reduce((e, s) => e + setErr(s, p), 0);
+    for (let it = 0; it < 8; it++) {
+      const members = pals.map(() => []);
+      for (const s of sets) { let bi = 0, be = Infinity; pals.forEach((p, i) => { const e = setErr(s, p); if (e < be) { be = e; bi = i; } }); members[bi].push(s); }
+      let changed = false;
+      pals.forEach((p, i) => {
+        const cand = [...new Set(members[i].flatMap(s => s.cols))].filter(c => !p.includes(c));
+        let cur = total(members[i], p);
+        for (let improved = true; improved; ) {
+          improved = false;
+          const tries = p.length < size ? cand.filter(c => !p.includes(c)).map(c => [...p, c]) : [];
+          for (let a = 0; a < p.length; a++) for (const c of cand) if (!p.includes(c)) { const q = p.slice(); q[a] = c; tries.push(q); }
+          for (const q of tries) { const e = total(members[i], q); if (e < cur - 1e-6) { cur = e; p = q; improved = true; } }
+        }
+        if (p.join() !== pals[i].join()) { pals[i] = p; changed = true; }
+      });
+      if (!changed) break;
+    }
+    return pals;
   }
   // the palette (from pals) that draws tile t with the least error; offset shifts indices (sprites: 1-3)
   function bestPalette(t, pals, offset = 0) {

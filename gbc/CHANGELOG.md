@@ -53,6 +53,8 @@ The start of the port: all 24 areas with the web game's maps and doors, turn-bas
 - Every look a cell can take in play (worked out from the monsters that leave trails, the blocks, the gates, crumbling paths and doors that appear) is drawn against every look of the cell below it, as metatiles per area; animated tiles come first in each tileset, in runs the ROM copies in one go.
 - Budget report (`make report`): sprites per row, total sprites and monster types per area, tiles per biome and how much of the art was recoloured (1-8% of pixels so far).
 - `overrides.js` holds every change from the web game; `../tools/validate.js --gbc` checks the maps with them merged in.
+- Each biome has the web game's night: its lighting (the biome's ambient colour at the web's strength) is baked into the terrain palettes, a share per biome in `overrides.js` (`look`), while sprites stay fully lit as the web's light pools keep them. Lava, fire, crystals, portals and blossoms keep their full glow, and the volcanic ground takes the lava's red.
+- The terrain palette solver refines its first answer, weighing each kind of tile by the square root of how often it's used, so signs stay wooden brown and anvils, gates and portals keep their colours instead of taking the grass's.
 
 ### Web player
 - binjgb in a page with the keyboard, controllers (Gamepad API), an on-screen pad on touch screens, its own save slot in the browser, and live reload on localhost: each build replaces the running ROM and keeps the save.

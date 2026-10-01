@@ -27,6 +27,17 @@ const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.j
 const songTitle = s => require(path.join(GBC, 'music', s + '.js')).about.split(':')[0].replace(/^\d{4}-\d\d-\d\d /, '').toUpperCase();   // "2022-10-30 Forest Home" -> FOREST HOME
 const songOf = key => { const s = (OV.music || {})[key] || key; if (!songs.includes(s)) throw new Error(`no Game Boy song for "${key}" (music/${s}.js)`); return songs.indexOf(s); };
 const TERRAIN_PALS = 5, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
+// biome mood: the web game lays each biome's ambient colour over everything at B.dark strength and cuts light
+// pools around Fang, friends, foes, items and lamps (render.js applyLighting). Here the terrain palettes take
+// part of that darkness (overrides.js look) and sprites stay at full light, as the pools keep them on the web.
+const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const terrain555 = (k, b) => {
+  const B = BIOMES[b], L = Object.assign({}, OV.look.default, OV.look[b]), lit = L.glow.includes(k), a = lit ? 0 : Math.min(1, L.light * B.dark), amb = hexRgb(B.ambient);
+  let c = G.rgbOf(k).map((v, i) => v * (1 - a) + amb[i] * a);
+  if (L.tint && !lit) { const g = hexRgb(L.tint[0]); c = c.map((v, i) => v * (1 - L.tint[1]) + g[i] * L.tint[1]); }
+  const [r, gg, bl] = c.map(v => Math.min(255, Math.round(v)));
+  return (r >> 3) | ((gg >> 3) << 5) | ((bl >> 3) << 10);
+};
 const problems = [];
 const hash2 = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const cName = s => s.replace(/[^a-z0-9_]/gi, '_');
@@ -206,7 +217,7 @@ for (const b of BIOME_KEYS) {
       }
     }
   }
-  const pals = G.solvePalettes(raw.flatMap(r => r.frames), TERRAIN_PALS);
+  const pals = G.solvePalettes(raw.flatMap(r => r.frames), TERRAIN_PALS, 4, true);
   // each tile: the palette that suits all its frames, then its colour indices (the same tile comes up often)
   const fit = new Map();
   const fitOf = fr => { const k = tileKey(fr); let v = fit.get(k); if (!v) { v = pals.map(p => G.bestPalette(fr, [p])); fit.set(k, v); } return v; };
@@ -243,6 +254,7 @@ for (const b of BIOME_KEYS) {
   let errPx = 0, px = 0;
   for (const r of raw) { px += 64; r.frames[0].forEach((k, j) => { if (pals[r.pal][r.idx[0][j]] !== k) errPx++; }); }
   biomeOut[b] = { order, pals, keys, segments, errPx, px };
+  if (process.env.DEBUG_PALS) console.error(b, pals.map(p => p.map(k => k + PAL[k]).join(' ')).join(' | '));
 }
 // a tile number in the map and its attribute bits: 0-127 at 0x9000 in VRAM bank 0, 128-255 at 0x9000 in bank 1, 256- at 0x8800 in bank 1
 const tileRef = (u, pal, flip) => ({ map: u.id < 128 ? u.id : u.id < 256 ? u.id - 128 : 128 + (u.id - 256), attr: pal | (u.id >= 128 ? 0x08 : 0) | flip });
@@ -507,7 +519,7 @@ const write = (f, s) => emit(f, HEAD + s);
 const defs = (prefix, names) => names.map((n, i) => `#define ${prefix}${n.replace(/[^a-z0-9]/gi, '_').toUpperCase()} ${i}\n`).join('');
 
 for (const [b, o] of Object.entries(biomeOut)) {
-  const pal = []; for (let p = 0; p < TERRAIN_PALS; p++) for (let c = 0; c < 4; c++) pal.push(o.pals[p] && o.pals[p][c] ? G.to555(o.pals[p][c]) : 0);
+  const pal = []; for (let p = 0; p < TERRAIN_PALS; p++) for (let c = 0; c < 4; c++) pal.push(o.pals[p] && o.pals[p][c] ? terrain555(o.pals[p][c], b) : 0);
   // animated runs: all three frames of the run's tiles, one frame after the other
   let off = 0; const anim = [], segs = o.segments.map(sg => { const at = off; for (let f = 0; f < 3; f++) for (const u of sg.tiles) anim.push(...G.enc2bpp(u.idx[f])); off += sg.tiles.length * 48; return `{ ${sg.anim}, ${sg.tiles.length}, ${sg.first}, ${at} }`; });
   write(`biome_${b}.c`, `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\nBANKREF(biome_${b})\n` +
@@ -689,7 +701,7 @@ const SHEET_COLS = 4, CW = 224, CH = 128 + 4;
 G.png(path.join(PREVIEW, 'areas.png'), SHEET_COLS * (CW + 4), Math.ceil(AREA_KEYS.length / SHEET_COLS) * CH, (x, y) => {
   const n = Math.floor(y / CH) * SHEET_COLS + Math.floor(x / (CW + 4)), lx = x % (CW + 4), ly = y % CH, k = AREA_KEYS[n];
   if (!k || lx >= CW || ly >= 128) return [16, 16, 24];
-  return G.from555(G.to555(areaOut[k].shown[ly * 224 + lx]));
+  return G.from555(terrain555(areaOut[k].shown[ly * 224 + lx], AREAS[k].biome));
 });
 // sprite sheet: every kind's frames with its palettes
 {

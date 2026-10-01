@@ -5,6 +5,17 @@ module.exports = {
   // each web song key (TRACKS, AREAS[..].music) to the one that plays in its place
   music: { title: 'title', home: 'home', forest: 'forest', slims: 'slims', plasma: 'plasma',
     battle: 'slims', win: 'plasma', dream: 'forest', blitz: 'slims', void: 'plasma' },
+  // the web game's lighting (render.js applyLighting: each biome's ambient colour over everything at B.dark,
+  // with light pools around Fang, friends, foes, items and lamps), baked into the terrain palettes: light is
+  // how much of that darkness they take (sprites stay fully lit, as the pools keep them on the web), tint mixes
+  // in the colour the web's coloured light pools give the ground
+  look: {
+    default: { light: 0.65, glow: 'eEyYOoiqMm' },   // glow: colours that keep full light (lava, fire, lit windows, crystals, portals, blossoms), inside their own pools on the web
+    void: { light: 0.45 },       // the paths have to show without Fang's light pool
+    dream: { light: 0.55 },
+    frozen: { light: 1.4, glow: 'eEyYOoqMm' },   // a light biome on the web too, but greyer than its bare palette; its ice uses the crystals' cyan, unlit
+    volcanic: { tint: ['#5a1a08', 0.14] },   // the lava's red light on the ash
+  },
   rules: {
     minionCap: 3,   // web: 5 alive minions (js/game.js); 8x16 sprites allow 10 per scanline
   },
