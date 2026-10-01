@@ -284,6 +284,7 @@ void title_open(uint8_t has_save) BANKED {
   cv_begin(); cv_centre("GAME BOY COLOR EDITION " GBC_VERSION, 2); cv_end(8);
   title_rows();
   win_show();
+  music_play(MUSIC_TITLE);
   game_state = S_TITLE;
 }
 uint8_t title_frame(uint8_t pressed) BANKED {   // 0 until chosen, then 1 continue, 2 new game

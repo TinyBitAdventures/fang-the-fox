@@ -34,7 +34,7 @@ void block_anim(uint8_t b, uint8_t from_cell) { blk_anim_t[b] = 0; blk_from[b] =
 void shake(uint8_t n) { if (opt_shake && n > shake_n) shake_n = n; }
 void transition(uint8_t to, uint8_t spawn) { state = S_TRANS; trans_t = 0; trans_to = to; trans_spawn = spawn; queued = 0; }
 void transition_dark(uint8_t to, uint8_t spawn) { transition(to, spawn); trans_t = FADE - 1; }
-void game_over(void) { state = S_DEAD; dead_t = 0; sfx_play(SFX_HURT); }   // the death box opens a moment later
+void game_over(void) { state = S_DEAD; dead_t = 0; music_play(MUSIC_WIN); sfx_play(SFX_HURT); }   // the death box opens a moment later
 uint8_t busy(void) {
   if (state == S_TRANS) return 2;
   if (fa.type != A_NONE) return 1;
@@ -236,7 +236,7 @@ void game_frame(uint8_t held, uint8_t pressed) {
   if (state == S_TITLE) {
     uint8_t c = title_frame(pressed);
     if (c == 1 && load_game()) { skip_leave = 1; transition(load_area, fox.y * COLS + fox.x); hud_say("Welcome back, Fang!"); show_objective(); }
-    else if (c) start_intro();   // a new game: Forest Home is fresh already
+    else if (c) { music_play(area_music); start_intro(); }   // a new game: Forest Home is fresh already
     hud_frame(); draw(); return;
   }
   if (state == S_OVERVIEW) {

@@ -312,7 +312,7 @@ void story_after(void) BANKED {
       m_clear(); m_s(kit_name[id]); m_s(" is headed home! ("); m_u(bits5(kits_rescued)); m_s("/5 kits found)"); hud_say(msg);
       save_game(); break;
     }
-    case AF_BOSS: if (game_state == S_PLAY) hud_say("Pick up the Ember!"); break;
+    case AF_BOSS: if (game_state == S_PLAY) hud_say("Pick up the Ember!"); music_play(a == MT_GUARDIAN ? MUSIC_WIN : area_music); break;
     case AF_INTRO: hud_say("The D-pad moves. Bump into Grandma to talk."); show_objective(); break;
     case AF_ENDING: credits_start(); break;   // pause.c rolls them, then finishCredits
   }

@@ -13,6 +13,7 @@ WORLD = (GBC / 'src/gen/world.h').read_text()
 LK = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define LK_(\w+) (\d+)', WORLD)}
 SP = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define SP_(\w+) (\d+)', WORLD)}
 AR = {m.group(1): int(m.group(2)) for m in re.finditer(r'#define AR_(\w+) (\d+)', WORLD)}
+SONG_COUNT = int(re.search(r'#define SONG_COUNT (\d+)', WORLD).group(1))
 
 fails = []
 def check(ok, what):
@@ -126,11 +127,17 @@ check(rom.state() == S_PLAY and now == saved, f'CONTINUE puts Fang back where he
 # the pause screen, the death box, the credits
 rom.tap('start', 30)
 check(rom.state() == S_PAUSE and rom.pb.memory[0xFF4A] == 0, 'START opens the pause screen over the whole screen')
-for _ in range(3): rom.tap('right', 12)   # MAP, QUEST, FANG, OPTIONS
+for _ in range(3): rom.tap('right', 24)   # MAP, QUEST, FANG, OPTIONS (a page takes up to 19 frames to draw)
 rom.tap('down', 8); rom.tap('right', 8)   # MUSIC: off
 check(not rom.u8('opt_music'), 'on OPTIONS, the first setting switches the music off')
-rom.tap('a', 8); rom.tap('b', 40)
+rom.tap('a', 8)
+song = rom.u8('music_cur')
+for _ in range(4): rom.tap('down', 8)
+rom.tap('right', 8); now = rom.u8('music_cur'); rom.tap('left', 8); rom.tap('left', 8)
+check(now == (song + 1) % SONG_COUNT and rom.u8('music_cur') == (song + SONG_COUNT - 1) % SONG_COUNT, 'the SOUND TEST plays the next song, and the one before')
+rom.tap('b', 40)
 check(rom.state() == S_PLAY and rom.u8('opt_music') and rom.pb.memory[0xFF4A] == 128, 'A switches it back; B closes the pause screen and the HUD returns')
+check(rom.u8('music_cur') == song, "the area's song plays again")
 rom.poke('en_n', 0); rom.poke('fox', 1, 8); rom.poke('fox', 1, 9); rom.poke('fox', 1, 0); rom.poke('fox', 0, 1); rom.poke('b_poison', 2)   # at (1,1) with 1 hp
 rom.tap('left', 40)
 check(rom.state() == S_DEAD and rom.pb.memory[0xFF4A] == 96 and bytes(rom.u8('death_by', i) for i in range(6)) == b'Poison', 'poison fells Fang: the death box names it')

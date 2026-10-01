@@ -8,7 +8,7 @@
 #include <string.h>
 #include "game.h"
 
-uint8_t area_idx, area_spawn, area_entry, area_flags, area_solved, area_boss_down, area_brazier_time, area_reform, area_crumble_to, area_is_fresh;
+uint8_t area_idx, area_music, area_spawn, area_entry, area_flags, area_solved, area_boss_down, area_brazier_time, area_reform, area_crumble_to, area_is_fresh;
 uint8_t tiles[CELLS], orig[CELLS];
 uint8_t door_n, kind_n;
 door_rt_t doors[MAX_DOORS];
@@ -122,7 +122,7 @@ void area_enter(uint8_t a) BANKED {
   uint8_t bank = area_ref(a, &ap), i;
   area_idx = a;
   far_copy(&A, bank, ap, sizeof(A));
-  area_spawn = A.spawn; area_flags = A.flags; area_brazier_time = A.brazier_time; area_reform = A.reform; area_crumble_to = A.crumble_to;
+  area_music = A.music; area_spawn = A.spawn; area_flags = A.flags; area_brazier_time = A.brazier_time; area_reform = A.reform; area_crumble_to = A.crumble_to;
   far_copy(orig, bank, A.cells, CELLS);
   area_bank = bank; area_recs = A.cell_recs; area_metas = A.metas;
   dyn_n = A.dyn_n; far_copy(dyn_cell, bank, A.dyn, dyn_n);

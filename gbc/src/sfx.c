@@ -14,6 +14,8 @@ static void release(void) {
   active = 0; cur = 0;
 }
 
+void sfx_stop(void) { if (cur) release(); }
+
 void sfx_play(uint8_t id) {
   if (!opt_sfx) return;
   if (cur) release();

@@ -22,6 +22,10 @@ const G = require('./lib/gfx')(PAL), SONG = require('./lib/song');
 
 const COLS = 14, ROWS = 8, CELLS_N = COLS * ROWS, GX = 80, GY = 54;   // web grid origin, used by the floor-variant hash
 const AREA_KEYS = Object.keys(AREAS), BIOME_KEYS = Object.keys(BIOMES), TRACK_KEYS = Object.keys(TRACKS);
+// the songs converted for the Game Boy (music/<song>.js, from tools/music.js), and which plays for each web song key
+const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js') && !f.endsWith('.map.js') && f !== 'sfx.js').map(f => f.slice(0, -3)).sort();
+const songTitle = s => require(path.join(GBC, 'music', s + '.js')).about.split(':')[0].replace(/^\d{4}-\d\d-\d\d /, '').toUpperCase();   // "2022-10-30 Forest Home" -> FOREST HOME
+const songOf = key => { const s = (OV.music || {})[key] || key; if (!songs.includes(s)) throw new Error(`no Game Boy song for "${key}" (music/${s}.js)`); return songs.indexOf(s); };
 const TERRAIN_PALS = 5, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
 const problems = [];
 const hash2 = (x, y) => { let h = (x * 374761393 + y * 668265263) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
@@ -586,10 +590,9 @@ AREA_KEYS.forEach(k => {
     list('kinds', 'area_kind_t', o.kinds, a => `  { ${a.kind}, ${a.bank}, ${a.tile}, ${a.pal} }`) +
     `static const uint8_t type_ak[] = { ${o.typeAk.join(', ')} };\nstatic const uint8_t item_ak[] = { ${o.itemAk.join(', ')} };\n` +
     `static const palette_color_t obj_pal[] = {\n${hex16(o.objPal)}\n};\n` +
-    `const area_t area_${c} = { ${BIOME_KEYS.indexOf(A.biome)}, ${TRACK_KEYS.indexOf(A.music)}, ${spawnOf(A)}, ${o.flags}, ${A.brazierTime || 0}, ${A.reform || 0}, ${(A.crumbleTo || '~').charCodeAt(0)}, cells, cell_recs, metas,\n` +
+    `const area_t area_${c} = { ${BIOME_KEYS.indexOf(A.biome)}, ${songOf(A.music)}, ${spawnOf(A)}, ${o.flags}, ${A.brazierTime || 0}, ${A.reform || 0}, ${(A.crumbleTo || '~').charCodeAt(0)}, cells, cell_recs, metas,\n` +
     `  ${o.dyn.length}, dyn, ${o.cond.length}, cond, ${o.blocks.length}, blocks, ${o.blockAk}, ${o.flameAk}, ${o.doors.length}, doors, ${o.enemies.length}, enemies, ${o.npcs.length}, npcs, ${o.items.length}, items, ${o.signs.length}, signs, ${o.kitAk}, ${o.kinds.length}, kinds, type_ak, item_ak, obj_pal, ${cstr(A.title)} };\n`);
 });
-const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js') && f !== 'sfx.js').map(f => f.slice(0, -3));
 for (const s of songs) emit(`song_${s}.c`, SONG.compile(s, require(path.join(GBC, 'music', s + '.js'))));
 const chFlags = new Array(128).fill(0);
 for (let c = 32; c < 128; c++) { const ch = String.fromCharCode(c), T = TERRAIN[ch]; if (ch === '#' || ch === '~' || (T && T.solid)) chFlags[c] |= 1; if (ch === '~') chFlags[c] |= 2; if (ch === 'd' || ch === 'D') chFlags[c] |= 4; if (ch === 'w') chFlags[c] |= 8; }
@@ -612,7 +615,7 @@ write('sfx_data.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   `const sfx_t sfx_table[SFX_COUNT] = { ${sfxNotes.map((notes, i) => `{ ${notes.length}, ${notes.reduce((a, n) => Math.max(a, n.at + n.frames), 0)}, sfx_${i} }`).join(', ')} };\n`);
 write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h>\n#include <gb/gb.h>\n#include <gb/cgb.h>\n\n` +
   `#define AREA_COUNT ${AREA_KEYS.length}\n#define KIND_COUNT ${KIND_NAMES.length}\n#define TYPE_COUNT ${MT.length}\n#define ITEM_COUNT ${IT.length}\n#define PERK_COUNT ${PERK_KEYS.length}\n#define FLAG_COUNT ${FLAGS.length}\n#define RELIC_COUNT ${relicCount}\n` +
-  `#define SFX_COUNT ${SFX_NAMES.length}\n#define MAX_ENEMIES ${MAX_ENEMIES}\n#define MAX_ITEMS ${MAX_ITEMS}\n` +
+  `#define SFX_COUNT ${SFX_NAMES.length}\n#define SONG_COUNT ${songs.length}\n#define MUSIC_TITLE ${songOf('title')}\n#define MUSIC_WIN ${songOf('win')}   // falling, the credits\n#define MAX_ENEMIES ${MAX_ENEMIES}\n#define MAX_ITEMS ${MAX_ITEMS}\n` +
   `#define COLS ${COLS}\n#define ROWS ${ROWS}\n#define CELLS ${COLS * ROWS}\n#define AREA_W 28   // tiles\n#define AREA_H 16\n` +
   `#define UI_TILES ${UI_TILES.length}\n#define OVERVIEW_TILES ${OVERVIEW_TILES.length}\n#define DLG_TILES ${DLG_TILES.length}\n#define KIND_FOX ${kinds.fox.id}\n` +
   `#define SPEAKER_COUNT ${SPEAKER_IDS.length}\n#define PORTRAIT_COUNT ${portraits.length}\n#define SHOP_COUNT ${SHOP.length}\n` + defs('SP_', SPEAKER_IDS) + defs('SHOP_', SHOP.map(s => s.id)) + defs('AR_', AREA_KEYS) +
@@ -644,7 +647,7 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `typedef struct { uint8_t at, ch, frames, env, arg; uint16_t p0, p1; } sfx_note_t;   // ch 2: arg = duty; ch 4: arg = NR43\n` +
   `typedef struct { uint8_t n, length; const sfx_note_t *notes; } sfx_t;\n\n` +
   `// each returns the ROM bank that holds *out and everything it points to (world_far.c, banked)\nuint8_t area_ref(uint8_t a, const area_t **out) BANKED;\nuint8_t biome_ref(uint8_t b, const biome_t **out) BANKED;\nuint8_t kind_ref(uint8_t k, const kind_t **out) BANKED;\n` +
-  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) BANKED;\nvoid ui_load_tiles(void) BANKED;   // the HUD's, the overview's and the dialogue box's tiles into 0x8800 (bank 0)\n\n` +
+  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) BANKED;\nuint8_t song_ref(uint8_t s, const void **out) BANKED;   // a hUGESong_t\nvoid song_name(uint8_t s, char *out) BANKED;\nvoid ui_load_tiles(void) BANKED;   // the HUD's, the overview's and the dialogue box's tiles into 0x8800 (bank 0)\n\n` +
   `extern const sfx_t sfx_table[SFX_COUNT];\n` +
   `extern const uint8_t look_of[128], look_tall[${LOOKS.length}];   // a tile's look when it never changes (0xFF: it does); looks that reach into the cell above\n` +
   `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\n` +
@@ -658,12 +661,16 @@ write('world.c', `#include <gb/gb.h>\n#include "world.h"\n\n` +
   `const uint8_t speaker_portrait[SPEAKER_COUNT] = { ${SPEAKER_IDS.map(id => portraitOf[id]).join(', ')} };\n` +
   `const palette_color_t ui_pal[12] = {\n${hex16(OVERVIEW_PAL.concat(HUD_PAL, TEXT_PAL).map(G.to555))}\n};\n` +
   `const uint8_t font[] = {\n${hex(glyphs.flat(), 12)}\n};\n`);
-write('world_far.c', `#pragma bank 255\n#include <gb/gb.h>\n#include "world.h"\n\n` +
+write('world_far.c', `#pragma bank 255\n#include <gb/gb.h>\n#include "hUGEDriver.h"\n#include "world.h"\n\n` +
   `// pal.c's fade: channel value i at level l (0-16) is (i * l) >> 4\nBANKREF(fade_lut)\nconst uint8_t fade_lut[17 * 32] = {\n${hex([...Array(17 * 32).keys()].map(n => ((n & 31) * (n >> 5)) >> 4), 32)}\n};\n\n` +
   AREA_KEYS.map(k => `BANKREF_EXTERN(area_${cName(k)})\nextern const area_t area_${cName(k)};`).join('\n') + '\n' +
   usedBiomes.map(b => `BANKREF_EXTERN(biome_${b})\nextern const biome_t biome_${b};`).join('\n') + '\n' +
   KIND_NAMES.map(k => `BANKREF_EXTERN(kind_${k})\nextern const kind_t kind_${k};`).join('\n') + '\n' +
-  portraits.map((_, n) => `BANKREF_EXTERN(portrait_${n})\nextern const portrait_t portrait_${n};`).join('\n') + '\n\n' +
+  portraits.map((_, n) => `BANKREF_EXTERN(portrait_${n})\nextern const portrait_t portrait_${n};`).join('\n') + '\n' +
+  songs.map(s => `BANKREF_EXTERN(song_${s})\nextern const hUGESong_t song_${s};`).join('\n') + '\n\n' +
+  `uint8_t song_ref(uint8_t s, const void **out) BANKED {\n  switch (s) {\n${songs.map((s, i) => `    case ${i}: *out = &song_${s}; return BANK(song_${s});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
+  `static const char * const song_names[SONG_COUNT] = { ${songs.map(s => JSON.stringify(songTitle(s))).join(', ')} };\n` +
+  `void song_name(uint8_t s, char *out) BANKED { const char *p = song_names[s]; while ((*out++ = *p++)); }   // the pause screen's sound test\n\n` +
   `static const uint8_t ui_tiles[] = {\n${hex(UI_TILES.flatMap(G.enc2bpp))}\n};\n` +
   `static const uint8_t overview_tiles[] = {\n${hex(OVERVIEW_TILES.flatMap(G.enc2bpp))}\n};\n` +
   `static const uint8_t dlg_tiles[] = {\n${hex(DLG_TILES.flatMap(G.enc2bpp))}\n};\n` +

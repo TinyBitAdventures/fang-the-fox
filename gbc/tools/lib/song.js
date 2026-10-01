@@ -4,7 +4,9 @@
 // Song: { tempo (ticks per row), rows (per pattern, default 64), duty: [{ duty 0-3, env }], wave: [{ volume 1-3, wave }],
 //         noise: [{ env }], waves: [[32 nibbles]], patterns: { name: { p1, p2, wave, noise } }, order: [names] }
 // A channel is bars of space-separated rows: "C5" plays a note with the channel's first instrument,
-// "C5:2" picks instrument 2, "." holds, "-" cuts the note. Noise rows use the names in drums: { k: ['C5', 1] }.
+// "C5:2" picks instrument 2 (or "C5:lead", a name from dutyNames / waveNames), "." holds, "-" cuts the
+// note, and "~047" after a row adds an effect (here an arpeggio; "~f07" sets the speed). Noise rows use
+// the names in drums: { k: ['C5', 1] }.
 'use strict';
 const NOTES = { C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5, 'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11 };
 const HOLD = 90;
@@ -18,16 +20,19 @@ function note(name) {
 // one hUGE row: note, instrument (1-based, 0 = keep) and a 12-bit effect
 const row = (n, ins, fx) => [(n | ((ins & 0x10) << 3)) & 0xff, (((ins << 4) & 0xff) | (fx >> 8)) & 0xff, fx & 0xff];
 
-function channelRows(src, rows, defIns, drums) {
+function channelRows(src, rows, defIns, drums, insNames = []) {
   const toks = (src || '').trim().split(/\s+/).filter(Boolean);
   while (toks.length < rows) toks.push('.');
   if (toks.length > rows) throw new Error(`pattern has ${toks.length} rows, max ${rows}`);
-  return toks.map(t => {
-    if (t === '.') return row(HOLD, 0, 0);
+  return toks.map(tok => {
+    const [t, fxs] = tok.split('~'), fx = fxs ? parseInt(fxs, 16) : 0;
+    if (t === '.') return row(HOLD, 0, fx);
     if (t === '-') return row(HOLD, 0, 0xE00);   // Exx: cut the note after xx ticks
-    if (drums && drums[t]) { const [n, ins] = drums[t]; return row(note(n), ins, 0); }
+    if (drums && drums[t]) { const [n, ins] = drums[t]; return row(note(n), ins, fx); }
     const [n, ins] = t.split(':');
-    return row(note(n), ins ? +ins : defIns, 0);
+    const i = ins === undefined ? defIns : /^\d+$/.test(ins) ? +ins : insNames.indexOf(ins) + 1;
+    if (!i) throw new Error(`unknown instrument ${ins}`);
+    return row(note(n), i, fx);
   });
 }
 
@@ -35,8 +40,9 @@ function compile(name, song) {
   const rows = song.rows || 64, pats = [], index = {};
   const chans = [['p1', 1], ['p2', 2], ['wave', 1], ['noise', 1]];
   const orders = chans.map(([ch, ins]) => song.order.map(pn => {
-    const key = pn + '.' + ch;
-    if (!(key in index)) { index[key] = pats.length; pats.push(channelRows(song.patterns[pn][ch], rows, ins, ch === 'noise' ? song.drums : null)); }
+    const key = ch + '|' + (song.patterns[pn][ch] || '');   // a pattern that repeats is stored once
+    const names = ch === 'wave' ? song.waveNames : ch === 'noise' ? song.noiseNames : song.dutyNames;
+    if (!(key in index)) { index[key] = pats.length; pats.push(channelRows(song.patterns[pn][ch], rows, ins, ch === 'noise' ? song.drums : null, names)); }
     return 'P' + index[key];
   }));
   const pad = (arr, n, fill) => arr.concat(Array(Math.max(0, n - arr.length)).fill(fill));

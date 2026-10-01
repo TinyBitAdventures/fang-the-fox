@@ -61,7 +61,7 @@ enum { T_MAP, T_QUEST, T_FANG, T_OPTIONS };
 enum { P_OUT, P_IN, P_OPEN, P_CLOSE, P_BACK };
 #define MAP_BASE 110   // the map's icons, in VRAM bank 0 at 0x9000 (past the canvases a page uses)
 #define NO_SEL 0xFF
-static uint8_t p_stage, tab, sel, confirm, blink;
+static uint8_t p_stage, tab, sel, confirm, blink, p_song;   // p_song: playing when the pause opened (the sound test puts it back)
 static const char * const tab_name[4] = { "MAP", "QUEST", "FANG", "OPTIONS" };
 static char line[48];
 
@@ -172,13 +172,20 @@ static void fang_page(void) {
   cv_line(14, "SELECT: THE AREA   START: THIS MENU", 2);
   fang_choice();
 }
-static const char * const opt_name[4] = { "MUSIC", "SOUND EFFECTS", "VOLUME", "SCREEN SHAKE" };
+// MUSIC, SOUND EFFECTS, VOLUME and SCREEN SHAKE are kept on the cartridge; the SOUND TEST plays any song
+#define OPT_SONG 4
+static const char * const opt_name[5] = { "MUSIC", "SOUND EFFECTS", "VOLUME", "SCREEN SHAKE", "SOUND TEST" };
 static void option_row(uint8_t i) {
   uint8_t on = sel == i, v = i == 0 ? opt_music : i == 1 ? opt_sfx : i == 3 ? opt_shake : 0;
   cv_begin();
   if (on) cv_draw(1, ">", 3);
   cv_draw(8, opt_name[i], on ? 3 : 1);
   if (i == 2) { uint8_t k; for (k = 0; k < 7; k++) line[k] = k < opt_vol ? '=' : '-'; line[7] = 0; cv_draw(96, line, on ? 3 : 1); }
+  else if (i == OPT_SONG) {
+    line[0] = 0; num(music_cur + 1); put(" OF "); num(SONG_COUNT); cv_draw(96, line, on ? 3 : 1); cv_end(13);
+    song_name(music_cur, line); cv_line(14, line, on ? 1 : 2);
+    return;
+  }
   else cv_draw(96, v ? "ON" : "OFF", v ? 1 : 2);
   cv_end(3 + (i << 1));
 }
@@ -186,8 +193,10 @@ static void options_page(void) {
   uint8_t i;
   cv_line(2, 0, 1);
   for (i = 0; i < 4; i++) { option_row(i); cv_line(4 + (i << 1), 0, 1); }
-  cv_line(12, "KEPT ON THE CARTRIDGE", 2);
-  for (i = 13; i <= 16; i++) cv_line(i, 0, 1);
+  cv_line(11, "KEPT ON THE CARTRIDGE", 2);
+  cv_line(12, 0, 1);
+  option_row(OPT_SONG);
+  for (i = 15; i <= 16; i++) cv_line(i, 0, 1);
 }
 static void draw_page(void) {
   uint8_t y;
@@ -212,10 +221,15 @@ static void build(void) {
 }
 
 void pause_open(void) BANKED {
-  game_state = S_PAUSE; p_stage = P_OUT; tab = T_MAP; sel = NO_SEL; confirm = 0; blink = 0;
+  game_state = S_PAUSE; p_stage = P_OUT; tab = T_MAP; sel = NO_SEL; confirm = 0; blink = 0; p_song = music_cur;
   sfx_play(SFX_SELECT);
 }
 static void change_option(int8_t d) {
+  if (sel == OPT_SONG) {   // straight to the next song (no click over its start); closing the pause puts the area's back
+    music_play(d < 0 ? (music_cur ? music_cur - 1 : SONG_COUNT - 1) : (music_cur + 1 < SONG_COUNT ? music_cur + 1 : 0));
+    option_row(OPT_SONG);
+    return;
+  }
   if (sel == 0) opt_music ^= 1;
   else if (sel == 1) opt_sfx ^= 1;
   else if (sel == 2) { int8_t v = opt_vol + d; if (v < 1 || v > 7) return; opt_vol = v; }
@@ -228,7 +242,7 @@ void pause_frame(uint8_t pressed) BANKED {
   switch (p_stage) {
     case P_OUT: if (fade_to(0)) { build(); p_stage = P_IN; } return;
     case P_IN: if (fade_to(16)) p_stage = P_OPEN; return;
-    case P_CLOSE: if (fade_to(0)) { give_back_tiles(); p_stage = P_BACK; } return;
+    case P_CLOSE: if (fade_to(0)) { give_back_tiles(); music_play(p_song); p_stage = P_BACK; } return;
     case P_BACK: if (fade_to(16)) game_state = S_PLAY; return;
   }
   blink++;
@@ -241,7 +255,7 @@ void pause_frame(uint8_t pressed) BANKED {
   if (tab == T_OPTIONS && sel != NO_SEL) {
     uint8_t prev = sel;
     if (pressed & J_UP) { sel = sel ? sel - 1 : NO_SEL; sfx_play(SFX_SELECT); option_row(prev); if (sel != NO_SEL) option_row(sel); else draw_hint(); }
-    else if (pressed & J_DOWN) { if (sel < 3) { sel++; sfx_play(SFX_SELECT); option_row(prev); option_row(sel); } }
+    else if (pressed & J_DOWN) { if (sel < OPT_SONG) { sel++; sfx_play(SFX_SELECT); option_row(prev); option_row(sel); } }
     else if (pressed & J_LEFT) change_option(-1);
     else if (pressed & (J_RIGHT | J_A)) change_option(1);
     else if (pressed & (J_B | J_START)) p_stage = P_CLOSE;
@@ -282,7 +296,7 @@ static void credit_line(uint8_t k, uint8_t lit) {   // line k into canvas k % 16
   for (i = 0; i < 18; i++) { row[i] = t + i; attr[i] = a; }
   VBK_REG = 1; set_bkg_tiles(1, r, 18, 1, attr); VBK_REG = 0; set_bkg_tiles(1, r, 18, 1, row);
 }
-void credits_start(void) BANKED { game_state = S_CREDITS; cr_stage = P_OUT; }
+void credits_start(void) BANKED { game_state = S_CREDITS; cr_stage = P_OUT; music_play(MUSIC_WIN); }
 void credits_frame(uint8_t pressed) BANKED {
   uint8_t y;
   switch (cr_stage) {

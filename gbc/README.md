@@ -2,7 +2,7 @@
 
 A port of [Fang the Fox](../README.md) to the Game Boy Color: a real `.gbc` ROM that runs in emulators (RetroArch, SameBoy, mGBA, a Retroid or any handheld), on a Game Boy Color from a flash cart, and in the browser. It is built from the web game's own maps and data (`../js/data.js`), so both versions stay the same game.
 
-**Status:** in development. Fang walks all 24 areas and fights with the web game's rules (checked step for step against it), picks up items, levels up, solves the puzzles, talks to everyone (portraits, the story, Rudy's shop, perk picks), saves to the cartridge, and plays from the title to the credits (a bot plays it through on every check); the world changes on screen as it does on the web (gates, trails, crumbling paths, fog, animated water and lava). There's a pause screen with a world map, a HUD, sound effects and a placeholder song. The art repaint and the album's music come next. What's done: [CHANGELOG.md](CHANGELOG.md).
+**Status:** in development. Fang walks all 24 areas and fights with the web game's rules (checked step for step against it), picks up items, levels up, solves the puzzles, talks to everyone (portraits, the story, Rudy's shop, perk picks), saves to the cartridge, and plays from the title to the credits (a bot plays it through on every check); the world changes on screen as it does on the web (gates, trails, crumbling paths, fog, animated water and lava). There's a pause screen with a world map, a HUD, sound effects and five songs from the album. The art repaint comes next. What's done: [CHANGELOG.md](CHANGELOG.md).
 
 ## Play the development build
 
@@ -41,11 +41,22 @@ The ROM is Color-only, MBC5 with 32 KB of battery-backed save RAM.
 | `overrides.js` | Everything the port changes from the web game, each with its reason. `node ../tools/validate.js --gbc` checks the merged maps. |
 | `art/` | GBC art. Same format as the web sprites; a file here replaces the web sprite of the same name. |
 | `src/` | The ROM's C code. The rules, ported from `js/game.js` function by function: `logic.c` (actions, items, areas), `combat.c` (attacks, damage, bosses, experience), `turn.c` (the enemies' turn) and `puzzle.c` (braziers, blocks, gates), sharing `rules.h`; `story.c` (a port of `js/story.js`: dialogue, quests, the shop, perk offers, the story queue) and `save.c` (two save slots). The view: `game.c` (input, animations, drawing, every frame), `cells.c` (each cell's look, redraws, tile animation), `dialog.c` (the dialogue box, the perk pick, the shop, the title and the death box, in the window layer), `pause.c` (the pause screen, the options, the credits), `canvas.c` (their text) and `screen.c` (floating numbers, the overview, entering areas). `area.c` loads areas and keeps visited ones in save RAM (`sram.h`); `sprites.c`, `pal.c`, `hud.c`/`hud_draw.c`, `text.c`, `sfx.c`, `audio.c`, `rng.c`, `far.c`. `src/gen/` is generated and not in git. |
-| `music/` | Songs, compiled to hUGEDriver data by the build. `lib/hUGEDriver/` is the music driver (public domain). |
+| `music/` | Songs (`<song>.js`, written by `tools/music.js` from `<song>.map.js`) and the sound effects (`sfx.js`), compiled to hUGEDriver data by the build. `lib/hUGEDriver/` is the music driver (public domain). |
+| `tools/music.js` | Converts a song's Bitwig project for the Game Boy's four channels (see Music below). |
 | `web/` | The web player: [binjgb](https://github.com/binji/binjgb) plus controllers, touch, a per-game save and live reload. |
-| `tools/bot/` | [PyBoy](https://github.com/Baekalfen/PyBoy) tests: `shots.py` (every area's background matches the build's preview pixel for pixel, and the frame budget), `smoke.py` (walking, doors, camera, overview, music, the Goo King, braziers, blocks, a hidden Treant), `parity.py` and `parity_suite.py` (the ROM against the web game, step by step), `rom.py` (shared helpers: variables by name from `build/fang.noi`). |
+| `tools/bot/` | [PyBoy](https://github.com/Baekalfen/PyBoy) tests: `shots.py` (every area's background matches the build's preview pixel for pixel, and the frame budget), `smoke.py` (walking, doors, camera, overview, music, the Goo King, braziers, blocks, a hidden Treant), `parity.py` and `parity_suite.py` (the ROM against the web game, step by step), `playthrough.py` (the whole story), `songs.py` (records every song from the ROM), `rom.py` (shared helpers: variables by name from `build/fang.noi`). |
 | `tools/parity.js` | The web game headless with the ROM's random numbers, playing a scripted run (optionally from any area, with perks, flags and a level). |
 | `tools/screenshot.js` | Playwright screenshots of the web player, driven frame by frame. |
+
+## Music
+
+Each song comes from its Bitwig project on the album. `music/<song>.map.js` lists which tracks play on each channel: pulse 1 (the lead), pulse 2 (harmony, arpeggios), wave (bass) and noise (the Drum Machine's pads as kick, snare, clap, hats and percussion). Tracks earlier in a channel's list cut in over later ones. Each track can pick a sound (`lead`, `soft`, `thin`, `pluck`, `bell`, `pad`; `bass`, `round` on the wave channel), how chords play (`arp`, `top`, `low`), an octave shift, and a softer sound for quiet notes. `from` and `to` (in beats) set the loop; a song has to fit one 16 KB ROM bank.
+
+    node tools/music.js home                # build/music/home/ (Wavelength's import), then music/home.js
+    node tools/music.js home --import       # import the Bitwig project again first
+    .venv/bin/python tools/bot/songs.py     # record every song from the ROM into build/songs/
+
+In the game, the pause screen's OPTIONS page has a SOUND TEST: left and right play any song.
 
 ## Tests
 

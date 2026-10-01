@@ -32,7 +32,7 @@ typedef struct { uint8_t cell, to, spawn, req, when; char name[NAME_LEN]; } door
 typedef struct { uint8_t cols, rows, frames, flags, prop, tile, pal, ppf; } kind_rt_t;   // 8 bytes: indexing is a shift
 #define MAX_PIECES 32   // 8x16 pieces per kind across all frames (a boss: 2 frames x 8)
 
-extern uint8_t area_idx, area_spawn, area_entry, area_flags, area_solved, area_boss_down, area_brazier_time, area_reform, area_crumble_to;
+extern uint8_t area_idx, area_music, area_spawn, area_entry, area_flags, area_solved, area_boss_down, area_brazier_time, area_reform, area_crumble_to;
 extern uint8_t tiles[CELLS], orig[CELLS];
 extern uint8_t door_n, kind_n;
 extern door_rt_t doors[MAX_DOORS];
@@ -252,13 +252,15 @@ void death_open(void) BANKED;
 void death_frame(void) BANKED;
 void death_close(void) BANKED;
 void area_reload_tiles(void) BANKED;   // the biome's tiles and palettes again, after the window borrowed them
-extern uint8_t music_on;
+extern uint8_t music_on, music_cur;   // music_cur: the song playing (NONE before the first)
 void music_enable(uint8_t on);
+void music_play(uint8_t s);
 extern uint8_t pal_dim;             // the world at half light, the window's text palette at full (the death box)
 
 // ---------- sound (audio.c, sfx.c) ----------
 void music_start(void);
 void sfx_play(uint8_t id);
+void sfx_stop(void);
 void sfx_frame(void);
 
 #endif

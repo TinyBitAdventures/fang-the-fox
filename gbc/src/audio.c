@@ -4,36 +4,54 @@
 #include "hUGEDriver.h"
 #include "game.h"
 
-BANKREF_EXTERN(song_placeholder)
-extern const hUGESong_t song_placeholder;
 static uint8_t song_bank;
-uint8_t music_on = 1;
+uint8_t music_on = 1, music_cur = NONE;
+
+static void mute_all(uint8_t on) {
+  for (uint8_t ch = 0; ch < 4; ch++) hUGE_mute_channel(ch, on ? HT_CH_PLAY : HT_CH_MUTE);
+}
+static void silence(void) { NR12_REG = 0; NR22_REG = 0; NR30_REG = 0; NR42_REG = 0; }
 
 // the options' MUSIC switch: the song keeps its place, its four channels fall silent (sfx.c leaves them muted)
 void music_enable(uint8_t on) {
   if (on == music_on) return;
   music_on = on;
-  for (uint8_t ch = 0; ch < 4; ch++) hUGE_mute_channel(ch, on ? HT_CH_PLAY : HT_CH_MUTE);
-  if (!on) { NR12_REG = 0; NR22_REG = 0; NR30_REG = 0; NR42_REG = 0; }
+  mute_all(on);
+  if (!on) silence();
 }
 
 static void music_isr(void) {
+  if (!song_bank) return;
   uint8_t save = _current_bank;
   SWITCH_ROM(song_bank);
   hUGE_dosound();
   SWITCH_ROM(save);
 }
 
+// js Music.play: song s from its start (overrides.js music says which song each web song key plays);
+// the song already playing carries on
+void music_play(uint8_t s) {
+  const void *song;
+  uint8_t bank;
+  if (s == music_cur) return;
+  music_cur = s;
+  sfx_stop();   // the effect's channels go back to the driver before it starts over
+  bank = song_ref(s, &song);
+  __critical {
+    uint8_t save = _current_bank;
+    silence();   // no note of the last song hangs on
+    song_bank = bank;
+    SWITCH_ROM(bank);
+    hUGE_init((const hUGESong_t *)song);
+    SWITCH_ROM(save);
+  }
+  mute_all(music_on);
+}
+
 void music_start(void) {
   NR52_REG = 0x80;   // sound on, both speakers, full volume
   NR51_REG = 0xFF;
   NR50_REG = 0x77;
-  __critical {
-    uint8_t save = _current_bank;
-    song_bank = BANK(song_placeholder);
-    SWITCH_ROM(song_bank);
-    hUGE_init(&song_placeholder);
-    SWITCH_ROM(save);
-    add_VBL(music_isr);
-  }
+  add_VBL(music_isr);
+  music_play(MUSIC_TITLE);
 }

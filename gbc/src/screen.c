@@ -80,6 +80,7 @@ void enter(uint8_t a, uint8_t spawn) BANKED {
   uint8_t loading = skip_leave;
   if (loading) skip_leave = 0; else area_leave();
   area_enter(a);
+  music_play(area_music);   // js enterArea
   if (spawn == NONE) spawn = area_spawn;
   fox.x = spawn % COLS; fox.y = spawn / COLS;
   fa.type = A_NONE;

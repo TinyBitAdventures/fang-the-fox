@@ -1,6 +1,10 @@
 // Game Boy Color edition: changes merged over js/data.js. Every entry is a place where the port
 // differs from the web game, so keep it small and say why. tools/validate.js --gbc checks the result.
 module.exports = {
+  // the web game's ten album songs, played by the five converted for the Game Boy (Austin, 2026-09-30):
+  // each web song key (TRACKS, AREAS[..].music) to the one that plays in its place
+  music: { title: 'title', home: 'home', forest: 'forest', slims: 'slims', plasma: 'plasma',
+    battle: 'slims', win: 'plasma', dream: 'forest', blitz: 'slims', void: 'plasma' },
   rules: {
     minionCap: 3,   // web: 5 alive minions (js/game.js); 8x16 sprites allow 10 per scanline
   },
