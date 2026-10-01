@@ -77,6 +77,13 @@ uint8_t cam_want(int16_t px) {
 }
 
 // ---------- drawing ----------
+// the title screen's sprite: Fang on the island in its picture (build.js)
+static void title_draw(void) {
+  spr_clear();
+  spr_put(AK_FOX, ((uint8_t)frame_count >> 5) & 1, 0, 0, TITLE_FOX_X + 8, TITLE_FOX_Y + 16);
+  spr_flush();
+}
+static uint8_t intro_due;   // a new game: the intro starts once Forest Home has faded in
 static void draw(void) {
   static int16_t px, py;
   static uint8_t i, lift, p, left, right, t8, fx, fy, ak, fl, half, bx, by, row, bit, slot, ax, ay, sy, c8, nfl;
@@ -237,9 +244,10 @@ void game_frame(uint8_t held, uint8_t pressed) {
   if (state == S_CREDITS) { credits_frame(pressed); return; }
   if (state == S_TITLE) {
     uint8_t c = title_frame(pressed);
-    if (c == 1 && load_game()) { skip_leave = 1; transition(load_area, fox.y * COLS + fox.x); hud_say("Welcome back, Fang!"); show_objective(); }
-    else if (c) { music_play(area_music); start_intro(); }   // a new game: Forest Home is fresh already
-    hud_frame(); draw(); return;
+    if (c == 1 && load_game()) { skip_leave = 1; transition_dark(load_area, fox.y * COLS + fox.x); hud_say("Welcome back, Fang!"); show_objective(); }
+    else if (c) { music_play(area_music); state = S_TRANS; trans_t = FADE; intro_due = 1; }   // a new game: Forest Home is fresh already; it fades in, then the intro
+    if (state == S_TITLE) title_draw(); else { hud_frame(); draw(); }
+    return;
   }
   if (state == S_OVERVIEW) {
     if (held & J_SELECT) return;
@@ -251,7 +259,7 @@ void game_frame(uint8_t held, uint8_t pressed) {
     if (trans_t == FADE) enter(trans_to, trans_spawn);
     if (trans_t > FADE) pal_level = trans_t - FADE;
     pal_dirty = 1;
-    if (trans_t == FADE * 2) state = S_PLAY;
+    if (trans_t == FADE * 2) { state = S_PLAY; if (intro_due) { intro_due = 0; start_intro(); } }
   } else if (state == S_DEAD) {
     if (dead_t < 255) dead_t++;
     if (dead_t == 18) death_open(); else if (dead_t > 18) death_frame();   // js drawEnd: after 300 ms

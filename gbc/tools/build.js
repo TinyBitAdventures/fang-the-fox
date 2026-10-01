@@ -26,6 +26,7 @@ const AREA_KEYS = Object.keys(AREAS), BIOME_KEYS = Object.keys(BIOMES), TRACK_KE
 const songs = fs.readdirSync(path.join(GBC, 'music')).filter(f => f.endsWith('.js') && !f.endsWith('.map.js') && f !== 'sfx.js').map(f => f.slice(0, -3)).sort();
 const songTitle = s => { const m = require(path.join(GBC, 'music', s + '.js')); return (m.title || m.about.split(':')[0].replace(/^\d{4}-\d\d-\d\d /, '')).toUpperCase(); };   // "2022-10-30 Forest Home" -> FOREST HOME
 const songOf = key => { const s = (OV.music || {})[key] || key; if (!songs.includes(s)) throw new Error(`no Game Boy song for "${key}" (music/${s}.js)`); return songs.indexOf(s); };
+const TITLE_W = 160, TITLE_H = 104, TITLE_FOX = [72, 52];   // the title screen's picture; where Fang's sprite stands on it (top-left)
 const TERRAIN_PALS = 5, OBJ_TILES = 128;   // OBJ tiles: 0x8000-0x87FF in each VRAM bank
 // biome mood: the web game lays each biome's ambient colour over everything at B.dark strength and cuts light
 // pools around Fang, friends, foes, items and lamps (render.js applyLighting). Here the terrain palettes take
@@ -683,7 +684,7 @@ write('world.h', `#ifndef FANG_WORLD_H\n#define FANG_WORLD_H\n#include <stdint.h
   `typedef struct { uint8_t at, ch, frames, env, arg; uint16_t p0, p1; } sfx_note_t;   // ch 2: arg = duty; ch 4: arg = NR43\n` +
   `typedef struct { uint8_t n, length; const sfx_note_t *notes; } sfx_t;\n\n` +
   `// each returns the ROM bank that holds *out and everything it points to (world_far.c, banked)\nuint8_t area_ref(uint8_t a, const area_t **out) BANKED;\nuint8_t biome_ref(uint8_t b, const biome_t **out) BANKED;\nuint8_t kind_ref(uint8_t k, const kind_t **out) BANKED;\n` +
-  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) BANKED;\nuint8_t song_ref(uint8_t s, const void **out) BANKED;   // a hUGESong_t\nvoid song_name(uint8_t s, char *out) BANKED;\nvoid ui_load_tiles(void) BANKED;   // the HUD's, the overview's and the dialogue box's tiles into 0x8800 (bank 0)\n\n` +
+  `uint8_t portrait_ref(uint8_t p, const portrait_t **out) BANKED;\nuint8_t song_ref(uint8_t s, const void **out) BANKED;   // a hUGESong_t\nvoid song_name(uint8_t s, char *out) BANKED;\nvoid title_art(palette_color_t *bg) BANKED;   // the title screen's picture into VRAM and bg (title.c)\n#define TITLE_FOX_X ${TITLE_FOX[0]}\n#define TITLE_FOX_Y ${TITLE_FOX[1]}\nvoid ui_load_tiles(void) BANKED;   // the HUD's, the overview's and the dialogue box's tiles into 0x8800 (bank 0)\n\n` +
   `extern const sfx_t sfx_table[SFX_COUNT];\n` +
   `extern const uint8_t look_of[128], look_tall[${LOOKS.length}];   // a tile's look when it never changes (0xFF: it does); looks that reach into the cell above\n` +
   `extern const uint8_t ch_flags[128], cell_col[CELLS], cell_row[CELLS];   // a cell's column and row, without dividing by 14\n` +
@@ -716,6 +717,87 @@ write('world_far.c', `#pragma bank 255\n#include <gb/gb.h>\n#include "hUGEDriver
   `uint8_t area_ref(uint8_t a, const area_t **out) BANKED {\n  switch (a) {\n${AREA_KEYS.map((k, i) => `    case ${i}: *out = &area_${cName(k)}; return BANK(area_${cName(k)});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
   `uint8_t biome_ref(uint8_t b, const biome_t **out) BANKED {\n  switch (b) {\n${usedBiomes.map(b => `    case ${BIOME_KEYS.indexOf(b)}: *out = &biome_${b}; return BANK(biome_${b});`).join('\n')}\n  }\n  return 0;\n}\n\n` +
   `uint8_t kind_ref(uint8_t k, const kind_t **out) BANKED {\n  switch (k) {\n${KIND_NAMES.map((k, i) => `    case ${i}: *out = &kind_${k}; return BANK(kind_${k});`).join('\n')}\n  }\n  return 0;\n}\n`);
+
+// ---------- the title screen: Forest Home's island in the night sky, as the web game opens ----------
+// A 160x104 picture over the menu box (dialog.c title_open): sky, moon and stars, the logo, distant hills, the
+// island with its trees and a lantern, its earthy underside and two waterfalls. Fang stands on it as a sprite.
+// It borrows the biome's tiles at 0x9000 (both VRAM banks) and BG palettes 0-5 until a game starts.
+{
+  const img = new Array(TITLE_W * TITLE_H).fill(null);
+  const set = (x, y, k) => { if (x >= 0 && x < TITLE_W && y >= 0 && y < TITLE_H) img[y * TITLE_W + x] = k; };
+  const h = (x, y) => hash2(x * 7 + 3, y * 13 + 5);
+  // sky: three bands of the night biome's blues, dithered where they meet; stars in the dark top
+  for (let y = 0; y < TITLE_H; y++) for (let x = 0; x < TITLE_W; x++) {
+    const band = y < 30 ? '0' : y < 62 ? '1' : '2', next = y < 30 ? '1' : '2', edge = y < 30 ? 30 : 62;
+    set(x, y, edge - y <= 3 && edge - y >= 0 && ((x + y) & 1) ? next : band);
+    if (y < 46 && h(x, y) < 0.012) set(x, y, h(y, x) < 0.3 ? '6' : '4');
+  }
+  // the moon: a crescent at the top left
+  for (let y = 4; y < 22; y++) for (let x = 8; x < 28; x++) {
+    const d1 = Math.hypot(x - 18, y - 12), d2 = Math.hypot(x - 21.5, y - 10);
+    if (d1 <= 7 && d2 > 6) set(x, y, d1 > 6.2 || d2 < 6.8 ? '5' : '6');
+  }
+  // distant hills along the bottom, a few lit windows
+  for (let x = 0; x < TITLE_W; x++) {
+    const top = Math.round(90 + 5 * Math.sin(x / 17) + 3 * Math.sin(x / 7 + 1));
+    for (let y = top; y < TITLE_H; y++) set(x, y, '1');
+    if (h(x, 1) < 0.04) set(x, top + 4, 'y');
+  }
+  // the logo, in the web font: FANG three times its size, THE FOX twice, outlined in the night's darkest blue
+  const textW = (t, sc) => [...t].reduce((w, c) => w + ((FONT[c] || FONT['?']).w + 1) * sc, -sc);
+  function text(t, sc, y, fill, shade, outline) {
+    let x = Math.round((TITLE_W - textW(t, sc)) / 2);
+    const px = [];
+    for (const c of t) { const g = FONT[c] || FONT['?']; for (let k = 0; k < g.px.length; k += 2) for (let a = 0; a < sc; a++) for (let b = 0; b < sc; b++) px.push([x + g.px[k] * sc + b, y + g.px[k + 1] * sc + a, g.px[k + 1]]); x += (g.w + 1) * sc; }
+    if (outline) for (const [px0, py0] of px) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1]]) set(px0 + dx, py0 + dy, outline);
+    for (const [px0, py0, row] of px) set(px0, py0, shade && row >= 3 ? shade : fill);
+  }
+  text('FANG', 3, 4, 'e', 'o', '0');
+  text('THE FOX', 2, 23, 'y', 'O', '0');
+  text('A TINY BIT ADVENTURE', 1, 37, '5', null, null);
+  // the island: a grass top seven cells wide, its front lip, the underside narrowing to a point, waterfalls
+  const IX = 24, IW = 112, TOP = 56, LIP = 72;
+  for (let y = LIP + 4; y < 101; y++) {
+    const half = Math.max(4, Math.round(IW / 2 - (y - LIP - 4) * 2.3)), cx = IX + IW / 2;
+    for (let x = cx - half; x < cx + half; x++) { const n = h(x, y); set(x, y, n < 0.07 ? 'S' : n < 0.14 ? 's' : n < 0.2 ? 'k' : (y + (x >> 2)) % 7 < 3 ? 'B' : 'b'); }
+  }
+  for (let x = IX; x < IX + IW; x++) { set(x, LIP, 'G'); set(x, LIP + 1, 'g'); set(x, LIP + 2, 't'); set(x, LIP + 3, 't'); }
+  for (let c = 0; c < IW / 16; c++) blit(img, TITLE_W, TITLE_H, 'grass_' + Math.floor(h(c, 9) * 3), IX + c * 16, TOP);
+  for (let x = IX; x < IX + IW; x++) set(x, TOP, 't');   // the island's back edge
+  for (const [wx, y0] of [[IX + 5, LIP + 2], [IX + IW - 7, LIP + 2]]) for (let y = y0; y < TITLE_H; y++) for (let k = 0; k < 3; k++) set(wx + k, y, ((y + k * 2) % 5) < 2 ? '6' : ((y + k) % 3) ? '4' : '5');
+  blit(img, TITLE_W, TITLE_H, 'tree', IX, TOP + 16 - 28);
+  blit(img, TITLE_W, TITLE_H, 'tree_b', IX + 15, TOP + 16 - 28);
+  blit(img, TITLE_W, TITLE_H, 'bush', IX + 84, TOP + 16 - 10);
+  blit(img, TITLE_W, TITLE_H, 'lantern', IX + IW - 12, TOP + 16 - 24);
+  blit(img, TITLE_W, TITLE_H, 'pumpkin', IX + 64, TOP + 8);
+  // two small rocks floating beside it
+  for (const [rx, ry, rw] of [[6, 76, 10], [144, 82, 9]]) for (let y = 0; y < 5; y++) for (let x = y; x < rw - y; x++) set(rx + x, ry + y, y === 0 ? 'G' : y === 1 ? 't' : 'b');
+  // 8x8 tiles of up to 4 colours, 6 palettes, deduplicated with flips
+  const tiles = [];
+  for (let ty = 0; ty < TITLE_H / 8; ty++) for (let tx = 0; tx < TITLE_W / 8; tx++) tiles.push(G.reduceTile(cut(img, TITLE_W, tx, ty), 4));
+  const tpals = G.solvePalettes(tiles, 6, 4, true), set8 = new G.TileSet(), map = [], attr = [];
+  for (const t of tiles) {
+    const { pal, idx } = G.bestPalette(t, tpals);
+    const [n, flip] = set8.add(idx);
+    map.push(n < 128 ? n : n - 128); attr.push(pal | (n >= 128 ? 0x08 : 0) | flip);
+  }
+  if (set8.tiles.length > 256) problems.push(`title screen: ${set8.tiles.length} tiles (256 at most)`);
+  const tpal = []; for (let p = 0; p < 6; p++) for (let c = 0; c < 4; c++) tpal.push(tpals[p] && tpals[p][c] ? G.to555(tpals[p][c]) : 0);
+  const n = set8.tiles.length;
+  write('title.c', `#pragma bank 255\n#include <gb/gb.h>\n#include <gb/cgb.h>\n#include <string.h>\n#include "world.h"\n\nBANKREF(title_art)\n` +
+    `static const uint8_t tiles[] = {\n${hex(set8.tiles.flatMap(G.enc2bpp))}\n};\nstatic const uint8_t map[] = {\n${hex(map, 20)}\n};\nstatic const uint8_t attr[] = {\n${hex(attr, 20)}\n};\n` +
+    `static const palette_color_t pal[] = {\n${hex16(tpal)}\n};\n` +
+    `void title_art(palette_color_t *bg) BANKED {   // with the display off: ${n} tiles, the map's top ${TITLE_H / 8} rows, BG palettes 0-5\n` +
+    `  VBK_REG = 0; set_data((uint8_t *)0x9000, tiles, ${Math.min(n, 128)} << 4);\n` +
+    (n > 128 ? `  VBK_REG = 1; set_data((uint8_t *)0x9000, tiles + 2048, ${n - 128} << 4);\n` : '') +
+    `  VBK_REG = 1; set_bkg_tiles(0, 0, 20, ${TITLE_H / 8}, attr); VBK_REG = 0; set_bkg_tiles(0, 0, 20, ${TITLE_H / 8}, map);\n` +
+    `  memcpy(bg, pal, sizeof(pal));\n}\n`);
+  // the preview, with Fang where his sprite stands
+  const fox = spr('fox_0');
+  blit(img, TITLE_W, TITLE_H, 'fox_0', TITLE_FOX[0] + Math.round(8 - fox.w / 2), TITLE_FOX[1] + 16 - fox.h);
+  G.png(path.join(PREVIEW, 'title.png'), TITLE_W * 3, TITLE_H * 3, (x, y) => { const k = img[Math.floor(y / 3) * TITLE_W + Math.floor(x / 3)]; return k ? G.from555(G.to555(k)) : [0, 0, 0]; });
+  console.log(`title screen: ${n} tiles`);
+}
 
 for (const f of fs.readdirSync(OUT)) if (/\.(c|h|inc)$/.test(f) && !written.has(f)) fs.unlinkSync(path.join(OUT, f));   // gone from the game
 

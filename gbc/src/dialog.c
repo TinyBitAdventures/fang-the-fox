@@ -270,29 +270,48 @@ void death_close(void) BANKED { win_close(); pal_dim = 0; pal_dirty = 1; }
 
 // the title: the game's name and CONTINUE / NEW GAME over Forest Home
 static uint8_t t_save;
+// the title screen: build.js's picture of the island (title.c) over a five-row box with the menu and the version.
+// It borrows the biome's tiles and BG palettes 0-5 (the display is still off at boot), so tile animation waits;
+// once a choice is made the screen fades out and the area comes back behind the dark (title_close)
+static uint8_t t_out, t_pick;
 static void title_rows(void) {
-  cv_begin(); cv_centre(t_save ? (m_sel ? "  CONTINUE  " : "> CONTINUE <") : "", m_sel ? 2 : 3); cv_end(5);
-  cv_begin(); cv_centre(!t_save || m_sel ? "> NEW GAME <" : "  NEW GAME  ", !t_save || m_sel ? 3 : 2); cv_end(6);
+  cv_begin(); cv_centre(t_save ? (m_sel ? "  CONTINUE  " : "> CONTINUE <") : "", m_sel ? 2 : 3); cv_end(1);
+  cv_begin(); cv_centre(!t_save || m_sel ? "> NEW GAME <" : "  NEW GAME  ", !t_save || m_sel ? 3 : 2); cv_end(2);
 }
 void title_open(uint8_t has_save) BANKED {
-  t_save = has_save; m_sel = 0;
-  menu_open();
-  cv_begin(); cv_end(0);
-  cv_begin(); cv_centre("FANG THE FOX", 3); cv_end(1);
-  cv_begin(); cv_centre("A TINY BIT ADVENTURE", 2); cv_end(2);
-  cv_begin(); cv_end(3); cv_begin(); cv_end(4); cv_begin(); cv_end(7);
-  cv_begin(); cv_centre("GAME BOY COLOR EDITION " GBC_VERSION, 2); cv_end(8);
+  t_save = has_save; m_sel = 0; t_out = 0;
+  anim_hold = 1;
+  title_art(bg_pal); pal_dirty = 1;
+  cam_x = 0; scroll_y = 0;
+  win_open(5);
+  cv_mode = CV_MENU;
+  for (uint8_t y = 0; y < 5; y++) cv_row(y, y);
+  cv_begin(); cv_end(0); cv_begin(); cv_end(3);
+  cv_begin(); cv_centre("GAME BOY COLOR EDITION " GBC_VERSION, 2); cv_end(4);
   title_rows();
   win_show();
   music_play(MUSIC_TITLE);
   game_state = S_TITLE;
 }
-uint8_t title_frame(uint8_t pressed) BANKED {   // 0 until chosen, then 1 continue, 2 new game
+static void title_close(void) {   // the screen is dark: the area's tiles, cells and palettes where the picture was
+  DISPLAY_OFF;
+  area_reload_tiles(); cells_draw_all();
+  win_close();   // the HUD's window, BG palettes 5 and 6
+  anim_hold = 0;
+  DISPLAY_ON;
+}
+uint8_t title_frame(uint8_t pressed) BANKED {   // 0 until chosen and the area is back behind the dark, then 1 continue, 2 new game
+  if (t_out) {
+    if (pal_level) { pal_level = pal_level > 2 ? pal_level - 2 : 0; pal_dirty = 1; return 0; }
+    if (++t_out < 5) return 0;   // the dark palettes take a few frames to reach the screen (prepared in two halves)
+    t_out = 0; title_close(); game_state = S_PLAY;
+    return t_pick;
+  }
   if (t_save && (pressed & (J_UP | J_DOWN | J_SELECT))) { m_sel ^= 1; sfx_play(SFX_SELECT); title_rows(); }
   if (!(pressed & (J_A | J_START))) return 0;
-  win_close();
-  game_state = S_PLAY;
-  return t_save && !m_sel ? 1 : 2;
+  t_pick = t_save && !m_sel ? 1 : 2; t_out = 1;
+  sfx_play(SFX_SELECT);
+  return 0;
 }
 
 void ui_init(void) BANKED { }   // the box's tiles come with the HUD's (ui_load_tiles)

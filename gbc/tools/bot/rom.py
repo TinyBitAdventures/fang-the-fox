@@ -23,8 +23,11 @@ class Rom:
             self.pb.tick(1, False)
             if self.u16('frame_count') > 2: break
         self.tick(4)
-        if start:                                 # NEW GAME on the title, then through the intro
+        if start:                                 # NEW GAME on the title, then through the intro (once Forest Home fades in)
             self.tap('a', 4)
+            for _ in range(240):
+                if self.state() == S_TALK: break
+                self.tick(1)
             self.skip_talk()
     def state(self): return self.u8('game_state')
     def settle_ui(self, frames=120):              # through whatever opens: dialogue (read), perk pick (the first), shop (leave); the speakers seen
