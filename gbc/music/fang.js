@@ -1,8 +1,9 @@
 // Fang the Fox, the title theme, arranged for the Game Boy: a recreation, not a conversion (music.js). The
 // ideas come from the Bitwig project ("2022-08-28 Fang the Fox"): the riff (low E, octave E, B C B, the A# B
 // answer), its gated 16th version, the high line, the C/B and C/D# sparkles, all over the two-bar Em | C (B A#)
-// loop. They're written for the hardware: plucked pulses with an attack, an echo on pulse 2, chord stabs as
-// arpeggios, a punchy bass wave, and drums with their own pitch drops.
+// loop. They're written for the hardware: the riff dry and gated as the conversion plays it (Austin: its sound
+// is the better one), an echo on pulse 2, chord stabs as arpeggios, a punchy bass wave, and drums with their
+// own pitch drops.
 // 128 BPM: 7 frames a row, 4 rows a beat, 16 a bar, 64 a pattern (4 bars). The intro plays once; the end
 // jumps back to the groove.
 'use strict';
@@ -31,11 +32,13 @@ const HIGH_C = [[0, 'C6'], [2, 'C6'], [4, 'B5'], [6, 'B5'], [10, 'B5'], [12, 'B5
 const HIGH_C2 = [[0, 'C6'], [2, 'C6'], [4, 'B5'], [6, 'B5'], [10, 'E6'], [12, 'E6']];
 
 function lead(list, ins, shift = 0) { return list.map(([r, n]) => [r, P(transpose(n, shift), ins)]); }
+// the riff's sound: a steady 50% square, each note cut a row later unless the next one follows straight on
+function dry(list) { const at = new Set(list.map(([r]) => r)); return list.flatMap(([r, n]) => (at.has(r + 1) ? [[r, P(n, 'dry')]] : [[r, P(n, 'dry')], [r + 1, '-']])); }
 function transpose(n, semis) { const m = midi(n) + semis; return NAMES[m % 12] + (Math.floor(m / 12) - 1); }
-// pulse 2 repeats pulse 1 three rows later, quieter (the echo the web game's synths have)
+// pulse 2 repeats pulse 1 three rows later, quieter (the echo the web game's synths have), cuts and all
 function echo(src, from = 0, to = ROWS) {
   const ch = blank();
-  src.forEach((t, r) => { if (r >= from && r < to && t !== '.' && t !== '-' && r + 3 < ROWS) ch[r + 3] = t.replace(/:[a-z]+/, ':echo').replace(/~.*/, ''); });
+  src.forEach((t, r) => { if (r >= from && r < to && t !== '.' && r + 3 < ROWS) ch[r + 3] = t.replace(/:[a-z]+/, ':echo').replace(/~.*/, ''); });
   return ch;
 }
 
@@ -65,17 +68,17 @@ const drums = (bars) => { const ch = blank(); bars.forEach((b, i) => b && put(ch
 
 // ---------- the patterns (4 bars each) ----------
 const patterns = {};
-{ // intro: the riff and its echo; hats come in
-  const p1 = blank(); put(p1, 0, lead(RIFF, 'lead')); put(p1, 1, lead(RIFF_C, 'lead')); put(p1, 2, lead(RIFF, 'lead')); put(p1, 3, lead(RIFF_ANS, 'lead'));
-  patterns.intro = { p1: join(p1), p2: join(echo(p1)), wave: '', noise: join(drums([null, null, HATS, HATS])) };
+{ // intro: the riff alone, as the conversion opens
+  const p1 = blank(); put(p1, 0, dry(RIFF)); put(p1, 1, dry(RIFF_C)); put(p1, 2, dry(RIFF)); put(p1, 3, dry(RIFF_ANS));
+  patterns.intro = { p1: join(p1), p2: '', wave: '', noise: '' };
 }
-{ // the bass and the kick arrive
-  const p1 = blank(); put(p1, 0, lead(RIFF, 'lead')); put(p1, 1, lead(RIFF_C, 'lead')); put(p1, 2, lead(RIFF, 'lead')); put(p1, 3, lead(RIFF_ANS, 'lead'));
+{ // the bass and the kick arrive, the riff gets its echo
+  const p1 = blank(); put(p1, 0, dry(RIFF)); put(p1, 1, dry(RIFF_C)); put(p1, 2, dry(RIFF)); put(p1, 3, dry(RIFF_ANS));
   const w = blank(); put(w, 0, bassEm()); put(w, 1, bassC()); put(w, 2, bassEm()); put(w, 3, bassC());
   const k1 = D([[0, 'k'], [2, 'h'], [6, 'h'], [8, 'k'], [10, 'h'], [14, 'h']]);
   patterns.arrive = { p1: join(p1), p2: join(echo(p1)), wave: join(w), noise: join(drums([k1, k1, k1, FILL])) };
 }
-const grooveP1 = () => { const p1 = blank(); put(p1, 0, lead(GATE, 'lead')); put(p1, 1, lead(GATE_C, 'lead')); put(p1, 2, lead(GATE_G, 'lead')); put(p1, 3, lead(GATE_C, 'lead')); return p1; };
+const grooveP1 = () => { const p1 = blank(); put(p1, 0, dry(GATE)); put(p1, 1, dry(GATE_C)); put(p1, 2, dry(GATE_G)); put(p1, 3, dry(GATE_C)); return p1; };
 const grooveP2 = () => { const p2 = blank(); put(p2, 0, pulseEm); put(p2, 1, pulseC); put(p2, 2, pulseEm); put(p2, 3, pulseC); return p2; };
 const grooveW = (oct) => { const w = blank(); put(w, 0, bassEm(oct)); put(w, 1, bassC(oct)); put(w, 2, bassEm(oct)); put(w, 3, bassC(oct)); return w; };
 patterns.groove = { p1: join(grooveP1()), p2: join(grooveP2()), wave: join(grooveW()), noise: join(drums([GROOVE, GROOVE, GROOVE, GROOVE])) };
@@ -86,9 +89,8 @@ patterns.groove2 = { p1: join(grooveP1()), p2: join(grooveP2()), wave: join(groo
   patterns.peak = { p1: join(p1), p2: join(p2), wave: join(grooveW(true)), noise: join(drums([PEAK, PEAK, PEAK, PEAK])) };
   patterns.peak2 = { p1: join(p1), p2: join(p2), wave: join(grooveW(true)), noise: join(drums([PEAK, PEAK, PEAK, FILL])) };
 }
-{ // the breakdown: the riff again with its echo, the low E held with vibrato, long bass notes, hats
-  const p1 = blank(); put(p1, 0, lead(RIFF, 'lead')); put(p1, 1, lead(RIFF_C, 'lead')); put(p1, 2, lead(RIFF, 'lead')); put(p1, 3, lead(RIFF_ANS, 'lead'));
-  for (const bar of [0, 2]) for (let r = 9; r < 14; r++) p1[bar * BAR + r] = '.~452';
+{ // the breakdown: the riff again with its echo, long bass notes, hats
+  const p1 = blank(); put(p1, 0, dry(RIFF)); put(p1, 1, dry(RIFF_C)); put(p1, 2, dry(RIFF)); put(p1, 3, dry(RIFF_ANS));
   const w = blank();
   for (const bar of [0, 2]) { w[bar * BAR] = W('E2', 'sub'); w[bar * BAR + 15] = '-'; }
   for (const bar of [1, 3]) { w[bar * BAR] = W('C3', 'sub'); w[bar * BAR + 8] = W('B2', 'sub'); w[bar * BAR + 15] = '-'; }
@@ -106,7 +108,7 @@ module.exports = {
   about: 'Fang the Fox: arranged for the Game Boy by hand in gbc/music/fang.js (a recreation of the title theme, not a conversion).',
   tempo: 7, bpm: 128, beats: [0, 128], loopFrom: 32,
   duty: [
-    { duty: 2, env: 0xC3, table: [[null, null, 0x940], [null, null, 0], [null, null, 0x980], [null, 3, 0]] },   // lead: a 25% attack that rounds to 50%
+    { duty: 2, env: 0xB0 },                    // dry: the riff, as the conversion's lead (steady, cut by the rows)
     { duty: 1, env: 0xB3 },                    // hi: the high line, thinner
     { duty: 2, env: 0x53 },                    // echo
     { duty: 0, env: 0x81 },                    // pulse: short and thin
@@ -114,7 +116,7 @@ module.exports = {
     { duty: 0, env: 0x92 },                    // sparkle
     { duty: 1, env: 0x72 },                    // rise
   ],
-  dutyNames: ['lead', 'hi', 'echo', 'pulse', 'chord', 'sparkle', 'rise'],
+  dutyNames: ['dry', 'hi', 'echo', 'pulse', 'chord', 'sparkle', 'rise'],
   wave: [{ wave: 0, volume: 1 }, { wave: 1, volume: 1 }],
   waveNames: ['bass', 'sub'],
   waves: [
