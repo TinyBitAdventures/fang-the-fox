@@ -29,23 +29,24 @@ module.exports = function gfx(PAL) {
     return t.map(k => (k === null ? null : f(k)));
   }
   // group tiles' colour sets into at most K palettes of size colours each (dark to light)
-  function solvePalettes(tiles, K, size = 4, tune = false) {   // tune: refine (terrain; sprites look better without)
+  function solvePalettes(tiles, K, size = 4, tune = false, pinned = []) {   // tune: refine (terrain; sprites look better without); pinned: palettes kept as given
     const sets = new Map();
     for (const t of tiles) { const cols = [...new Set(t.filter(k => k !== null))].sort(), id = cols.join(''); if (!cols.length) continue; const s = sets.get(id) || { cols, w: 0, px: {} }; s.w++; for (const k of t) if (k !== null) s.px[k] = (s.px[k] || 0) + 1; sets.set(id, s); }
     const order = [...sets.values()].sort((a, b) => b.cols.length - a.cols.length || b.w - a.w);
-    const pals = [], left = [];
+    const pals = pinned.map(p => new Set(p)), left = [];
     for (const s of order) {
       let best = null, add = 99;
-      for (const p of pals) { const u = new Set([...p, ...s.cols]); if (u.size <= size && u.size - p.size < add) { best = p; add = u.size - p.size; } }
+      for (const p of pals.slice(pinned.length)) { const u = new Set([...p, ...s.cols]); if (u.size <= size && u.size - p.size < add) { best = p; add = u.size - p.size; } }
+      if (!best && s.cols.every(c => pals.slice(0, pinned.length).some(p => p.has(c)))) continue;   // a pinned palette draws it
       if (best) s.cols.forEach(c => best.add(c)); else if (pals.length < K) pals.push(new Set(s.cols)); else left.push(s);
     }
-    for (const s of left) for (const p of pals.filter(p => p.size < size)) { const miss = s.cols.filter(c => !p.has(c)).sort((a, b) => s.px[b] - s.px[a]); while (p.size < size && miss.length) p.add(miss.shift()); }
-    return (tune ? refine([...sets.values()], pals.map(p => [...p]), size) : pals.map(p => [...p])).map(p => p.sort((a, b) => luma(a) - luma(b)));
+    for (const s of left) for (const p of pals.slice(pinned.length).filter(p => p.size < size)) { const miss = s.cols.filter(c => !p.has(c)).sort((a, b) => s.px[b] - s.px[a]); while (p.size < size && miss.length) p.add(miss.shift()); }
+    return (tune ? refine([...sets.values()], pals.map(p => [...p]), size, pinned.length) : pals.map(p => [...p])).map(p => p.sort((a, b) => luma(a) - luma(b)));
   }
   // then k-means over the palettes: each colour set goes to the palette that draws it best, and each palette
   // swaps colours while that lowers the error of the sets it draws. A set counts by the square root of how
   // many tiles use it, so a sign or an anvil isn't outvoted by a few hundred grass tiles.
-  function refine(sets, pals, size) {
+  function refine(sets, pals, size, fixed = 0) {
     const setErr = (s, p) => { if (!p.length) return Infinity; let e = 0; for (const k of s.cols) e += s.px[k] * dist(k, nearest(k, p)); return e / Math.sqrt(s.w); };
     const total = (members, p) => members.reduce((e, s) => e + setErr(s, p), 0);
     for (let it = 0; it < 8; it++) {
@@ -53,6 +54,7 @@ module.exports = function gfx(PAL) {
       for (const s of sets) { let bi = 0, be = Infinity; pals.forEach((p, i) => { const e = setErr(s, p); if (e < be) { be = e; bi = i; } }); members[bi].push(s); }
       let changed = false;
       pals.forEach((p, i) => {
+        if (i < fixed) return;
         const cand = [...new Set(members[i].flatMap(s => s.cols))].filter(c => !p.includes(c));
         let cur = total(members[i], p);
         for (let improved = true; improved; ) {

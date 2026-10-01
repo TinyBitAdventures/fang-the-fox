@@ -217,7 +217,7 @@ for (const b of BIOME_KEYS) {
       }
     }
   }
-  const pals = G.solvePalettes(raw.flatMap(r => r.frames), TERRAIN_PALS, 4, true);
+  const pals = G.solvePalettes(raw.flatMap(r => r.frames), TERRAIN_PALS, 4, true, ((OV.look[b] || {}).pin || []).map(p => [...p]));
   // each tile: the palette that suits all its frames, then its colour indices (the same tile comes up often)
   const fit = new Map();
   const fitOf = fr => { const k = tileKey(fr); let v = fit.get(k); if (!v) { v = pals.map(p => G.bestPalette(fr, [p])); fit.set(k, v); } return v; };

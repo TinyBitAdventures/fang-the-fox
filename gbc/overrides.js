@@ -10,11 +10,13 @@ module.exports = {
   // how much of that darkness they take (sprites stay fully lit, as the pools keep them on the web), tint mixes
   // in the colour the web's coloured light pools give the ground
   look: {
-    default: { light: 0.65, glow: 'eEyYOoiqMm' },   // glow: colours that keep full light (lava, fire, lit windows, crystals, portals, blossoms), inside their own pools on the web
+    default: { light: 0.65, glow: 'eEoOqi' },   // glow: colours that keep full light (lava, fire, crystals, portals), inside their own pools on the web
+    night: { pin: ['1234'] },    // pin: palettes the solver keeps; Forest Home's pond over the portal that opens late in the story
     void: { light: 0.45 },       // the paths have to show without Fang's light pool
     dream: { light: 0.55 },
-    frozen: { light: 1.4, glow: 'eEyYOoqMm' },   // a light biome on the web too, but greyer than its bare palette; its ice uses the crystals' cyan, unlit
-    volcanic: { tint: ['#5a1a08', 0.14] },   // the lava's red light on the ash
+    frozen: { light: 1.2, glow: 'eEoOq' },   // a light biome on the web too, but greyer than its bare palette; its ice uses the crystals' cyan, unlit
+    volcanic: { tint: ['#5a1a08', 0.14], glow: 'eEoOqiyY' },   // the lava's red light on the ash; its bright yellows
+    enchanted: { glow: 'eEoOqMm' },   // the magic trees' blossoms, lit pink on the web (their leaves use the crystals' cyan, unlit)
   },
   rules: {
     minionCap: 3,   // web: 5 alive minions (js/game.js); 8x16 sprites allow 10 per scanline
